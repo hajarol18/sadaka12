@@ -1,0 +1,34 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Configuration couleur primaire verte pour Ant Design */
+:root {
+  --ant-primary-color: #52c41a;
+  --ant-primary-color-hover: #73d13d;
+  --ant-primary-color-active: #389e0d;
+}
+
+.ant-btn-primary {
+  background-color: #52c41a;
+  border-color: #52c41a;
+}
+
+.ant-btn-primary:hover {
+  background-color: #73d13d;
+  border-color: #73d13d;
+}
+
+.ant-btn-primary:active {
+  background-color: #389e0d;
+  border-color: #389e0d;
+}

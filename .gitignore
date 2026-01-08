@@ -1,0 +1,95 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production
+build/
+dist/
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+Thumbs.db
+
+# Backend
+SadaqahApp_WEBServices-main/target/
+SadaqahApp_WEBServices-main/.mvn/
+SadaqahApp_WEBServices-main/.idea/
+SadaqahApp_WEBServices-main/*.iml
+
+# Frontend
+frontend-web/node_modules/
+frontend-web/dist/
+frontend-web/.vite/
+frontend-web/*.log
+
+# Environment variables (sensitive)
+.env
+*.env
+application-local.properties
+
+# Database
+*.db
+*.sqlite
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# PowerShell scripts (keep them but ignore logs)
+*.log
+
+# IDE
+*.iml
+.idea/
+.vscode/
+
+# Build artifacts
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# Spring Boot
+application-*.properties
+!application.properties
+
+# Sensitive data
+**/passwords.txt
+**/secrets.txt
+**/*secret*
+**/*password*
+
