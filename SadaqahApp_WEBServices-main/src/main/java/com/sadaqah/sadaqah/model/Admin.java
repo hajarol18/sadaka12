@@ -20,6 +20,15 @@ public class Admin {
 	private String userName;
 	private String passWord;
 	private String mail;
+	
+	public Long getId() {
+		return id;
+	}
+	
+	public void setId(Long id) {
+		this.id = id;
+	}
+	
 	public String getName() {
 		return name;
 	}

@@ -1,20 +1,13 @@
 import { Button, Card, Form, Input, Modal, Space, Table, Tabs, Tag, message, Typography } from 'antd';
 import { DownloadOutlined, UploadOutlined } from '@ant-design/icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../utils/api';
 import { exportAllDataAsJSON, importDataFromJSON } from '../utils/mock';
+import { getAnnoncesEnCours, approveAnnonce, rejectAnnonce } from '../services/annonceService';
+import { getUtilisateurs } from '../services/utilisateurService';
+import type { Annonce, Utilisateur } from '../types/api';
 
 type Role = { id: string; name: string; description?: string };
-type PendingDonation = { 
-  id: string; 
-  title?: string;
-  category: string; 
-  quantity: number; 
-  commune: string; 
-  createdAt: string;
-  description?: string;
-};
-type User = { id: string; firstName: string; lastName: string; email: string; role: string; phone?: string };
 type NewsletterSubscriber = { id: string; email: string; subscribedAt: string };
 
 export default function Admin() {
@@ -24,14 +17,14 @@ export default function Admin() {
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [form] = Form.useForm();
 
-  const [pending, setPending] = useState<PendingDonation[]>([]);
+  const [pending, setPending] = useState<Annonce[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
   
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<Utilisateur[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [rejectReason, setRejectReason] = useState<string>('');
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [selectedDonationId, setSelectedDonationId] = useState<string | null>(null);
+  const [selectedDonationId, setSelectedDonationId] = useState<string | number | null>(null);
   
   const [newsletterSubscribers, setNewsletterSubscribers] = useState<NewsletterSubscriber[]>([]);
   const [newsletterLoading, setNewsletterLoading] = useState(false);
@@ -79,33 +72,52 @@ export default function Admin() {
     setRolesLoading(true);
     api
       .get('/roles')
-      .then((res) => setRoles(res.data as Role[]))
+      .then((res) => {
+        const data = res.data;
+        setRoles(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        setRoles([]);
+      })
       .finally(() => setRolesLoading(false));
   };
 
-  const loadPending = () => {
+  const loadPending = async () => {
     setPendingLoading(true);
-    api
-      .get('/donations', { params: { status: 'PENDING' } })
-      .then((res) => setPending(res.data as PendingDonation[]))
-      .finally(() => setPendingLoading(false));
+    try {
+      console.log('[Admin] Chargement des annonces en cours...');
+      const annonces = await getAnnoncesEnCours();
+      console.log('[Admin] Annonces en cours reçues:', annonces);
+      
+      // S'assurer que c'est un tableau
+      const annoncesArray = Array.isArray(annonces) ? annonces : [];
+      setPending(annoncesArray);
+    } catch (error: any) {
+      console.error('[Admin] Erreur lors du chargement des annonces en cours:', error);
+      message.error('Erreur lors du chargement des annonces en attente');
+      setPending([]);
+    } finally {
+      setPendingLoading(false);
+    }
   };
 
-  const loadUsers = () => {
+  const loadUsers = async () => {
     setUsersLoading(true);
-    // Mock: Simuler la récupération des utilisateurs
-    api
-      .get('/users')
-      .then((res) => setUsers(res.data as User[]))
-      .catch(() => {
-        // Si l'endpoint n'existe pas, utiliser des données mock
-        setUsers([
-          { id: '1', firstName: 'Ahmed', lastName: 'Alaoui', email: 'admin@sadaka.ma', role: 'ADMIN', phone: '0612345678' },
-          { id: '2', firstName: 'Fatima', lastName: 'Benali', email: 'moderator@sadaka.ma', role: 'MODERATOR', phone: '0612345679' },
-          { id: '3', firstName: 'Mohamed', lastName: 'Idrissi', email: 'user@sadaka.ma', role: 'USER', phone: '0612345680' }
-        ]);
-      })
-      .finally(() => setUsersLoading(false));
+    try {
+      console.log('[Admin] Chargement des utilisateurs...');
+      const utilisateurs = await getUtilisateurs();
+      console.log('[Admin] Utilisateurs reçus:', utilisateurs);
+      
+      // S'assurer que c'est un tableau
+      const utilisateursArray = Array.isArray(utilisateurs) ? utilisateurs : [];
+      setUsers(utilisateursArray);
+    } catch (error: any) {
+      console.error('[Admin] Erreur lors du chargement des utilisateurs:', error);
+      message.error('Erreur lors du chargement des utilisateurs');
+      setUsers([]);
+    } finally {
+      setUsersLoading(false);
+    }
   };
 
   const loadNewsletter = () => {
@@ -113,7 +125,10 @@ export default function Admin() {
     // Mock: Simuler la récupération des abonnés newsletter
     api
       .get('/newsletter/subscribers')
-      .then((res) => setNewsletterSubscribers(res.data as NewsletterSubscriber[]))
+      .then((res) => {
+        const data = res.data;
+        setNewsletterSubscribers(Array.isArray(data) ? data : []);
+      })
       .catch(() => {
         // Si l'endpoint n'existe pas, utiliser des données mock
         setNewsletterSubscribers([
@@ -169,13 +184,16 @@ export default function Admin() {
     }
   };
 
-  const approve = async (id: string) => {
+  const approve = async (id: string | number) => {
     try {
-      await api.post(`/donations/${id}/approve`);
-      message.success('Annonce validée');
+      const annonceId = typeof id === 'string' ? parseInt(id) : id;
+      console.log('[Admin] Approbation de l\'annonce:', annonceId);
+      await approveAnnonce(annonceId);
+      message.success('Annonce validée avec succès');
       loadPending();
-    } catch {
-      message.error('Erreur de validation');
+    } catch (error: any) {
+      console.error('[Admin] Erreur lors de l\'approbation:', error);
+      message.error('Erreur lors de la validation de l\'annonce');
     }
   };
   const openRejectModal = (id: string) => {
@@ -187,22 +205,31 @@ export default function Admin() {
   const reject = async () => {
     if (!selectedDonationId) return;
     try {
-      await api.post(`/donations/${selectedDonationId}/reject`, { reason: rejectReason || 'Non conforme' });
-      message.success('Annonce rejetée avec motif');
+      const annonceId = typeof selectedDonationId === 'string' ? parseInt(selectedDonationId) : selectedDonationId;
+      console.log('[Admin] Rejet de l\'annonce:', annonceId, 'Motif:', rejectReason);
+      await rejectAnnonce(annonceId);
+      message.success('Annonce rejetée avec succès');
       setRejectModalOpen(false);
       setSelectedDonationId(null);
+      setRejectReason('');
       loadPending();
-    } catch {
-      message.error('Erreur du rejet');
+    } catch (error: any) {
+      console.error('[Admin] Erreur lors du rejet:', error);
+      message.error('Erreur lors du rejet de l\'annonce');
     }
   };
 
   const deleteUser = async (userId: string) => {
     try {
-      await api.delete(`/users/${userId}`);
-      message.success('Utilisateur supprimé');
-      loadUsers();
-    } catch {
+      // Note: Le backend n'a peut-être pas d'endpoint DELETE pour utilisateur
+      // Pour l'instant, on affiche juste un message
+      message.warning('Fonctionnalité de suppression d\'utilisateur non implémentée dans le backend');
+      // TODO: Implémenter l'endpoint DELETE /api/v1/utilisateur/{id} dans le backend
+      // await api.delete(`/api/v1/utilisateur/${userId}`);
+      // message.success('Utilisateur supprimé');
+      // loadUsers();
+    } catch (error: any) {
+      console.error('[Admin] Erreur suppression utilisateur:', error);
       message.error('Erreur de suppression');
     }
   };
@@ -233,7 +260,7 @@ export default function Admin() {
                 <Table
                   rowKey="id"
                   loading={rolesLoading}
-                  dataSource={roles}
+                  dataSource={Array.isArray(roles) ? roles : []}
                   columns={[
                     { title: 'Nom', dataIndex: 'name' },
                     { title: 'Description', dataIndex: 'description' },
@@ -274,39 +301,49 @@ export default function Admin() {
                 <Table
                   rowKey="id"
                   loading={pendingLoading}
-                  dataSource={pending}
+                  dataSource={Array.isArray(pending) ? pending : []}
                   columns={[
                     { 
                       title: 'Titre', 
-                      dataIndex: 'title',
-                      render: (text) => text || 'Sans titre'
+                      dataIndex: 'titre',
+                      render: (text: string) => text || 'Sans titre'
+                    },
+                    { 
+                      title: 'Description', 
+                      dataIndex: 'description',
+                      render: (text: string) => text ? (text.length > 50 ? text.substring(0, 50) + '...' : text) : '-'
                     },
                     { 
                       title: 'Catégorie', 
-                      dataIndex: 'category',
-                      render: (cat: string) => {
-                        const labels: Record<string, string> = {
-                          FOOD: 'Nourriture',
-                          CLOTHES: 'Vêtements',
-                          MEDICINE: 'Médicaments',
-                          OTHER: 'Autres'
-                        };
-                        return labels[cat] || cat;
+                      dataIndex: ['categorie', 'nom'],
+                      render: (nom: string, record: Annonce) => {
+                        const catName = record.categorie?.nom || record.categorie?.name || 'Non spécifiée';
+                        return catName;
                       }
                     },
-                    { title: 'Quantité', dataIndex: 'quantity' },
-                    { title: 'Commune', dataIndex: 'commune' },
+                    { 
+                      title: 'Quantité', 
+                      dataIndex: 'quatite',
+                      render: (qty: number) => qty || 1
+                    },
+                    { 
+                      title: 'Commune', 
+                      dataIndex: ['commune', 'nomCommune'],
+                      render: (nom: string, record: Annonce) => {
+                        return record.commune?.nomCommune || 'Non spécifiée';
+                      }
+                    },
                     { 
                       title: 'Date', 
-                      dataIndex: 'createdAt',
-                      render: (date: string) => new Date(date).toLocaleDateString('fr-FR')
+                      dataIndex: 'date',
+                      render: (date: string) => date ? new Date(date).toLocaleDateString('fr-FR') : '-'
                     },
                     {
                       title: 'Actions',
-                      render: (_, r: PendingDonation) => (
+                      render: (_, r: Annonce) => (
                         <Space>
                           <Button type="primary" size="small" onClick={() => approve(r.id)}>Valider</Button>
-                          <Button danger size="small" onClick={() => openRejectModal(r.id)}>Rejeter</Button>
+                          <Button danger size="small" onClick={() => openRejectModal(r.id.toString())}>Rejeter</Button>
                         </Space>
                       )
                     }
@@ -344,29 +381,29 @@ export default function Admin() {
                 <Table
                   rowKey="id"
                   loading={usersLoading}
-                  dataSource={users}
+                  dataSource={Array.isArray(users) ? users : []}
                   columns={[
-                    { title: 'Nom', dataIndex: 'lastName' },
-                    { title: 'Prénom', dataIndex: 'firstName' },
+                    { title: 'Nom', dataIndex: 'nom' },
+                    { title: 'Prénom', dataIndex: 'prenom' },
                     { title: 'Email', dataIndex: 'email' },
-                    { title: 'Téléphone', dataIndex: 'phone' },
                     { 
-                      title: 'Rôle', 
-                      dataIndex: 'role',
-                      render: (role: string) => (
-                        <Tag color={role === 'ADMIN' ? 'red' : role === 'MODERATOR' ? 'orange' : 'green'}>
-                          {role}
-                        </Tag>
-                      )
+                      title: 'Téléphone', 
+                      dataIndex: 'telephone',
+                      render: (tel: number) => tel ? tel.toString() : '-'
+                    },
+                    { 
+                      title: 'Username', 
+                      dataIndex: 'userName',
+                      render: (userName: string) => userName || '-'
                     },
                     {
                       title: 'Actions',
-                      render: (_, user: User) => (
+                      render: (_, user: Utilisateur) => (
                         <Button 
                           danger 
                           size="small" 
-                          onClick={() => deleteUser(user.id)}
-                          disabled={user.role === 'ADMIN'}
+                          onClick={() => deleteUser(user.id.toString())}
+                          disabled={user.email === 'admin@sadaka.ma' || user.email === 'admin@sadaqah.com'}
                         >
                           Supprimer
                         </Button>
@@ -427,7 +464,7 @@ export default function Admin() {
                 <Table
                   rowKey="id"
                   loading={newsletterLoading}
-                  dataSource={newsletterSubscribers}
+                  dataSource={Array.isArray(newsletterSubscribers) ? newsletterSubscribers : []}
                   columns={[
                     { title: 'Email', dataIndex: 'email' },
                     { 

@@ -93,16 +93,44 @@ public class AnnonceService {
 		double userLongitude = coordinates.get(0);
         double userLatitude = coordinates.get(1);
         Long idMax=annonceRepo.maxID();
+        if (idMax == null) {
+        	idMax = 0L;
+        }
         Calendar cal = Calendar.getInstance();
         Date date=cal.getTime();
         DateFormat dateFormat = new SimpleDateFormat("MM-dd-yyyy");
         String formattedDate=dateFormat.format(date);
         
+        System.out.println("[AnnonceService] Création annonce:");
+        System.out.println("  - idMax: " + idMax);
+        System.out.println("  - Nouvel ID: " + (idMax + 1));
+        System.out.println("  - titre: " + titre);
+        System.out.println("  - desc: " + desc);
+        System.out.println("  - categorie: " + categorie);
+        System.out.println("  - commune: " + commune);
+        System.out.println("  - donnateur: " + donnateur);
+        System.out.println("  - longitude: " + userLongitude);
+        System.out.println("  - latitude: " + userLatitude);
+        System.out.println("  - photo: " + photo);
+        
         try {
-        	annonceRepo.addAnnonce(idMax+1,titre, desc,date, categorie,commune, donnateur,userLongitude,userLatitude,photo);
+        	int insertResult = annonceRepo.addAnnonce(idMax+1,titre, desc,date, categorie,commune, donnateur,userLongitude,userLatitude,photo);
+        	System.out.println("[AnnonceService] Résultat INSERT (rows affected): " + insertResult);
+        	
+        	if (insertResult > 0) {
+        		// Vérifier que l'annonce a bien été créée
+        		List<Annonce> annonces = annonceRepo.findMesAnnonces(donnateur);
+        		System.out.println("[AnnonceService] Nombre d'annonces après création: " + annonces.size());
+        		result = true;
+        	} else {
+        		System.err.println("[AnnonceService] ERREUR: Aucune ligne insérée (insertResult = 0)");
+        		result = false;
+        	}
+        	
         	return result; 
         } catch(Exception e){
-        	
+        	System.err.println("[AnnonceService] ERREUR lors de la création de l'annonce:");
+        	e.printStackTrace();
         	result = false;
         	return result;
         	

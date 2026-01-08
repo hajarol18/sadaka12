@@ -41,8 +41,34 @@ export async function getAnnonces(): Promise<Annonce[]> {
  * Récupère toutes les annonces en cours de traitement
  */
 export async function getAnnoncesEnCours(): Promise<Annonce[]> {
-  const response = await api.get(`${BASE_URL}/annonces/encours`);
-  return response.data;
+  try {
+    console.log('[getAnnoncesEnCours] Appel API:', `${BASE_URL}/annonces/encours`);
+    const response = await api.get(`${BASE_URL}/annonces/encours`);
+    console.log('[getAnnoncesEnCours] Réponse brute:', response);
+    console.log('[getAnnoncesEnCours] response.data:', response.data);
+    
+    let data = response.data;
+    
+    // Si la réponse est un objet avec 'value', extraire le tableau
+    if (data && typeof data === 'object' && !Array.isArray(data) && 'value' in data) {
+      data = data.value;
+      console.log('[getAnnoncesEnCours] Données extraites de value:', data);
+    }
+    
+    // S'assurer que c'est un tableau
+    const annonces = Array.isArray(data) ? data : [];
+    console.log('[getAnnoncesEnCours] Annonces finales:', annonces.length, 'annonces');
+    
+    return annonces;
+  } catch (error: any) {
+    console.error('[getAnnoncesEnCours] Erreur:', error);
+    console.error('[getAnnoncesEnCours] Erreur détaillée:', {
+      message: error?.message,
+      response: error?.response?.data,
+      status: error?.response?.status
+    });
+    return [];
+  }
 }
 
 /**
@@ -66,19 +92,43 @@ export async function getAnnonceById(id: number): Promise<Annonce | null> {
  */
 export async function getAnnoncesByUser(userId: number): Promise<Annonce[]> {
   try {
+    console.log('[getAnnoncesByUser] Appel API pour userId:', userId);
     const response = await api.get(`${BASE_URL}/annonces/user/${userId}`);
+    console.log('[getAnnoncesByUser] Réponse brute:', response);
+    console.log('[getAnnoncesByUser] response.data:', response.data);
+    console.log('[getAnnoncesByUser] Type de response.data:', typeof response.data, Array.isArray(response.data));
+    
     let data = response.data;
     
     // S'assurer que c'est un tableau
     if (data && typeof data === 'object' && !Array.isArray(data)) {
+      console.log('[getAnnoncesByUser] response.data n\'est pas un tableau, extraction...');
       if ('value' in data) {
         data = data.value;
+        console.log('[getAnnoncesByUser] Données extraites de value:', data);
       }
     }
     
-    return Array.isArray(data) ? data : [];
+    const annonces = Array.isArray(data) ? data : [];
+    console.log('[getAnnoncesByUser] Annonces finales:', annonces.length, 'annonces');
+    annonces.forEach((a: any, index: number) => {
+      console.log(`[getAnnoncesByUser] Annonce ${index + 1}:`, {
+        id: a.id,
+        titre: a.titre,
+        status: a.status,
+        donnateur_id: a.donnateur?.id || a.donnateur_id
+      });
+    });
+    
+    return annonces;
   } catch (error: any) {
     console.error('[getAnnoncesByUser] Erreur:', error);
+    console.error('[getAnnoncesByUser] Erreur détaillée:', {
+      message: error?.message,
+      response: error?.response?.data,
+      status: error?.response?.status,
+      url: error?.config?.url
+    });
     return [];
   }
 }
@@ -113,6 +163,14 @@ export async function createAnnonce(data: {
   photo: string;
   quatite?: number; // Quantité (optionnel pour compatibilité)
 }): Promise<number> {
+  console.log('[createAnnonce] Création annonce avec données:', {
+    titre: data.titre,
+    donnateur: data.donnateur,
+    categorie: data.categorie,
+    commune: data.commune,
+    coordinates: data.coordinates
+  });
+  
   // Spring @RequestParam avec List<Double> attend les paramètres répétés
   const params = new URLSearchParams();
   params.append('titre', data.titre);
@@ -126,12 +184,26 @@ export async function createAnnonce(data: {
   params.append('coordinates', data.coordinates[1].toString());
   // Note: quatite n'est pas encore supporté par le backend dans le POST
 
-  const response = await api.post(`${BASE_URL}/annonce`, params.toString(), {
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-  });
-  return response.data;
+  console.log('[createAnnonce] Paramètres envoyés:', params.toString());
+  
+  try {
+    const response = await api.post(`${BASE_URL}/annonce`, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+    console.log('[createAnnonce] Réponse du backend:', response.data);
+    console.log('[createAnnonce] Status:', response.status);
+    return response.data;
+  } catch (error: any) {
+    console.error('[createAnnonce] Erreur lors de la création:', error);
+    console.error('[createAnnonce] Erreur détaillée:', {
+      message: error?.message,
+      response: error?.response?.data,
+      status: error?.response?.status
+    });
+    throw error;
+  }
 }
 
 /**

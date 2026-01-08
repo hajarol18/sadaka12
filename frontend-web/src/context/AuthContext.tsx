@@ -19,6 +19,7 @@ type AuthContextValue = {
   isModerator: boolean;
   isUser: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginAdmin: (userName: string, password: string) => Promise<void>;
   register: (payload: {
     firstName: string;
     lastName: string;
@@ -51,10 +52,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    // Décoder le token simple (userId:email)
+    // Décoder le token simple (userId:email ou admin:adminId:email)
     try {
       const decoded = atob(token);
-      const [userId, email] = decoded.split(':');
+      const parts = decoded.split(':');
+      
+      // Si c'est un token admin (format: admin:adminId:email)
+      if (parts[0] === 'admin') {
+        const adminId = parts[1];
+        const email = parts[2] || parts[1];
+        
+        // Récupérer les infos admin
+        api.get('/api/v1/admins')
+          .then((res) => {
+            const admins = Array.isArray(res.data) ? res.data : [];
+            const foundAdmin = admins.find((a: any) => a.id?.toString() === adminId);
+            
+            if (foundAdmin) {
+              setUser({
+                id: foundAdmin.id?.toString() || adminId,
+                firstName: foundAdmin.name || 'Admin',
+                lastName: '',
+                email: foundAdmin.mail || email,
+                role: UserRole.ADMIN
+              });
+            } else {
+              setUser({
+                id: adminId,
+                firstName: 'Admin',
+                lastName: '',
+                email: email,
+                role: UserRole.ADMIN
+              });
+            }
+          })
+          .catch(() => {
+            setUser({
+              id: adminId,
+              firstName: 'Admin',
+              lastName: '',
+              email: email,
+              role: UserRole.ADMIN
+            });
+          });
+        return;
+      }
+      
+      // Token utilisateur normal (format: userId:email)
+      const userId = parts[0];
+      const email = parts[1];
       
       // Récupérer les infos utilisateur depuis le backend
       api
@@ -110,6 +156,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
     }
   }, [token]);
+
+  const loginAdmin = useCallback(async (userName: string, password: string) => {
+    try {
+      // Connexion admin via /api/v1/admin/connect
+      const res = await api.get('/api/v1/admin/connect', {
+        params: {
+          userName: userName,
+          passWord: password
+        }
+      });
+      
+      const adminId = res.data;
+      
+      if (!adminId || adminId === 0) {
+        throw new Error('Nom d\'utilisateur ou mot de passe admin incorrect');
+      }
+      
+      // Créer un token simple (base64 adminId:email avec préfixe "admin:")
+      const simpleToken = btoa(`admin:${adminId}:${userName}`);
+      setToken(simpleToken);
+      
+      // Récupérer les infos admin
+      try {
+        const adminsRes = await api.get('/api/v1/admins');
+        const admins = Array.isArray(adminsRes.data) ? adminsRes.data : [];
+        const foundAdmin = admins.find((a: any) => a.id === adminId || a.id?.toString() === adminId?.toString());
+        
+        if (foundAdmin) {
+          setUser({
+            id: foundAdmin.id?.toString() || adminId.toString(),
+            firstName: foundAdmin.name || '',
+            lastName: '',
+            email: foundAdmin.mail || userName,
+            role: UserRole.ADMIN
+          });
+        } else {
+          setUser({
+            id: adminId.toString(),
+            firstName: 'Admin',
+            lastName: '',
+            email: userName,
+            role: UserRole.ADMIN
+          });
+        }
+      } catch (e) {
+        console.error('[AuthContext] Erreur récupération admin:', e);
+        setUser({
+          id: adminId.toString(),
+          firstName: 'Admin',
+          lastName: '',
+          email: userName,
+          role: UserRole.ADMIN
+        });
+      }
+    } catch (error: any) {
+      console.error('Erreur de connexion admin:', error);
+      if (error?.code === 'ECONNREFUSED' || error?.message?.includes('Network Error')) {
+        throw new Error('Backend non accessible. Veuillez démarrer le backend.');
+      } else if (error?.response?.status === 404) {
+        throw new Error('Endpoint de connexion admin non trouvé (404).');
+      } else {
+        throw new Error(error?.response?.data?.message || 'Échec de connexion admin. Vérifiez vos identifiants.');
+      }
+    }
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     try {
@@ -237,10 +348,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isModerator: user?.role === UserRole.MODERATOR,
       isUser: user?.role === UserRole.USER,
       login,
+      loginAdmin,
       register,
       logout
     }),
-    [user, token, login, register, logout]
+    [user, token, login, loginAdmin, register, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,10 +1,10 @@
-import { Card, Table, Tag, Button, Empty, Typography, Space, Modal, InputNumber, Descriptions, message, Divider, Popconfirm } from 'antd';
-import { useEffect, useState } from 'react';
+import { Card, Table, Tag, Button, Empty, Typography, Space, Modal, InputNumber, Descriptions, message, Divider, Popconfirm, Select, Badge } from 'antd';
+import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getAnnoncesByUser } from '../services/annonceService';
 import { getDemandesByAnnonce } from '../services/demandeService';
 import { Link } from 'react-router-dom';
-import { PlusOutlined, UserOutlined, PhoneOutlined, MailOutlined, CheckOutlined } from '@ant-design/icons';
+import { PlusOutlined, UserOutlined, PhoneOutlined, MailOutlined, CheckOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import type { Annonce } from '../types/api';
 
 const { Title, Text } = Typography;
@@ -35,38 +35,79 @@ export default function MyAnnouncements() {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedInterest, setSelectedInterest] = useState<InterestRequest | null>(null);
   const [assignQuantity, setAssignQuantity] = useState<number>(1);
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
-  // Charger les annonces de l'utilisateur connecté
-  useEffect(() => {
+  // Fonction pour charger les données
+  const loadData = async () => {
     if (!isAuthenticated || !user?.id) {
       return;
     }
     
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const userId = parseInt(user.id) || 0;
-        if (userId === 0) {
-          message.error('Erreur: utilisateur non identifié');
-          return;
-        }
-        
-        const annonces = await getAnnoncesByUser(userId);
-        
-        // S'assurer que c'est un tableau
-        const annoncesArray = Array.isArray(annonces) ? annonces : [];
-        setData(annoncesArray);
-      } catch (error: any) {
-        console.error('[MyAnnouncements] Erreur:', error);
-        message.error('Erreur lors du chargement de vos annonces');
-        setData([]);
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    try {
+      const userId = parseInt(user.id) || 0;
+      if (userId === 0) {
+        message.error('Erreur: utilisateur non identifié');
+        return;
       }
-    };
-    
+      
+      console.log('[MyAnnouncements] Chargement des annonces pour userId:', userId);
+      const annonces = await getAnnoncesByUser(userId);
+      console.log('[MyAnnouncements] Annonces reçues:', annonces);
+      
+      // S'assurer que c'est un tableau
+      const annoncesArray = Array.isArray(annonces) ? annonces : [];
+      console.log('[MyAnnouncements] Annonces après vérification:', annoncesArray.length, annoncesArray);
+      setData(annoncesArray);
+      
+      if (annoncesArray.length === 0) {
+        console.log('[MyAnnouncements] Aucune annonce trouvée pour userId:', userId);
+      }
+    } catch (error: any) {
+      console.error('[MyAnnouncements] Erreur:', error);
+      message.error('Erreur lors du chargement de vos annonces');
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Charger les annonces de l'utilisateur connecté
+  useEffect(() => {
     loadData();
   }, [isAuthenticated, user?.id]);
+
+  // Recharger quand on arrive sur la page (pour capturer les nouvelles annonces)
+  useEffect(() => {
+    // Recharger après un court délai pour s'assurer que la navigation est terminée
+    const timer = setTimeout(() => {
+      if (isAuthenticated && user?.id) {
+        loadData();
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Filtrer les annonces par statut
+  const filteredData = useMemo(() => {
+    if (!statusFilter) {
+      return data;
+    }
+    return data.filter(ann => ann.status === statusFilter);
+  }, [data, statusFilter]);
+
+  // Statistiques des statuts
+  const statusStats = useMemo(() => {
+    const stats = {
+      total: data.length,
+      'déclarée': data.filter(a => a.status === 'déclarée' || a.status === 'modifiée').length,
+      'approuvée': data.filter(a => a.status === 'approuvée').length,
+      'rejetée': data.filter(a => a.status === 'rejetée').length,
+      'annulée': data.filter(a => a.status === 'annulée').length
+    };
+    return stats;
+  }, [data]);
 
   const loadInterests = async (announcementId: number) => {
     setInterestsLoading(true);
@@ -202,24 +243,26 @@ export default function MyAnnouncements() {
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
-      'déclarée': 'En attente',
-      'approuvée': 'Approuvé',
-      'rejetée': 'Rejeté',
-      'annulée': 'Annulé',
+      'déclarée': 'En attente de validation',
+      'approuvée': '✅ Approuvée',
+      'rejetée': '❌ Refusée',
+      'annulée': 'Annulée',
+      'modifiée': 'Modifiée (en attente)',
       'PENDING': 'En attente',
-      'APPROVED': 'Approuvé',
-      'REJECTED': 'Rejeté',
-      'DONATED': 'Donné'
+      'APPROVED': '✅ Approuvée',
+      'REJECTED': '❌ Refusée',
+      'DONATED': 'Donnée'
     };
-    return labels[status] || status;
+    return labels[status] || status || 'Non défini';
   };
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      'déclarée': 'orange',
-      'approuvée': 'green',
-      'rejetée': 'red',
-      'annulée': 'default',
+      'déclarée': 'orange',        // En attente - orange
+      'approuvée': 'green',         // Approuvée - vert
+      'rejetée': 'red',            // Refusée - rouge
+      'annulée': 'default',        // Annulée - gris
+      'modifiée': 'orange',        // Modifiée - orange (en attente)
       'PENDING': 'orange',
       'APPROVED': 'green',
       'REJECTED': 'red',
@@ -241,19 +284,65 @@ export default function MyAnnouncements() {
             </Link>
           </Space>
         }
+        extra={
+          <Space>
+            <Text type="secondary">Filtrer par statut:</Text>
+            <Select
+              style={{ width: 200 }}
+              placeholder="Tous les statuts"
+              allowClear
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { label: 'Toutes', value: undefined },
+                { label: `En attente (${statusStats['déclarée']})`, value: 'déclarée' },
+                { label: `Approuvées (${statusStats['approuvée']})`, value: 'approuvée' },
+                { label: `Refusées (${statusStats['rejetée']})`, value: 'rejetée' },
+                { label: `Annulées (${statusStats['annulée']})`, value: 'annulée' }
+              ]}
+            />
+          </Space>
+        }
       >
-        {data.length === 0 && !loading ? (
+        {/* Statistiques rapides */}
+        {data.length > 0 && (
+          <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+            <Space size="large">
+              <Badge count={statusStats.total} showZero color="#1890ff">
+                <Text strong>Total: {statusStats.total} annonce{statusStats.total > 1 ? 's' : ''}</Text>
+              </Badge>
+              <Badge count={statusStats['déclarée']} showZero color="orange">
+                <Text><ClockCircleOutlined /> En attente: {statusStats['déclarée']}</Text>
+              </Badge>
+              <Badge count={statusStats['approuvée']} showZero color="green">
+                <Text><CheckCircleOutlined /> Approuvées: {statusStats['approuvée']}</Text>
+              </Badge>
+              <Badge count={statusStats['rejetée']} showZero color="red">
+                <Text><CloseCircleOutlined /> Refusées: {statusStats['rejetée']}</Text>
+              </Badge>
+            </Space>
+          </div>
+        )}
+        {filteredData.length === 0 && !loading ? (
           <Empty
             description={
               <div>
-                <Text type="secondary" style={{ fontSize: 16, display: 'block', marginBottom: 16 }}>
-                  Vous n'avez pas encore créé d'annonces
-                </Text>
-                <Link to="/create-announcement">
-                  <Button type="primary" icon={<PlusOutlined />} size="large">
-                    Créer ma première annonce
-                  </Button>
-                </Link>
+                {data.length === 0 ? (
+                  <>
+                    <Text type="secondary" style={{ fontSize: 16, display: 'block', marginBottom: 16 }}>
+                      Vous n'avez pas encore créé d'annonces
+                    </Text>
+                    <Link to="/create-announcement">
+                      <Button type="primary" icon={<PlusOutlined />} size="large">
+                        Créer ma première annonce
+                      </Button>
+                    </Link>
+                  </>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 16 }}>
+                    Aucune annonce ne correspond au filtre sélectionné
+                  </Text>
+                )}
               </div>
             }
           />
@@ -261,7 +350,7 @@ export default function MyAnnouncements() {
           <Table
             rowKey="id"
             loading={loading}
-            dataSource={data}
+            dataSource={filteredData}
             pagination={{ pageSize: 10 }}
             columns={[
               { 
@@ -311,12 +400,31 @@ export default function MyAnnouncements() {
               },
               { 
                 title: 'Statut', 
-                dataIndex: 'status', 
-                render: (v: string) => (
-                  <Tag color={getStatusColor(v)}>
-                    {getStatusLabel(v)}
-                  </Tag>
-                )
+                dataIndex: 'status',
+                width: 200,
+                render: (v: string) => {
+                  const status = v || 'déclarée';
+                  const icon = status === 'approuvée' ? <CheckCircleOutlined /> 
+                    : status === 'rejetée' ? <CloseCircleOutlined />
+                    : <ClockCircleOutlined />;
+                  
+                  return (
+                    <Tag 
+                      color={getStatusColor(status)} 
+                      icon={icon}
+                      style={{ fontSize: 13, padding: '4px 8px' }}
+                    >
+                      {getStatusLabel(status)}
+                    </Tag>
+                  );
+                },
+                filters: [
+                  { text: 'En attente', value: 'déclarée' },
+                  { text: 'Approuvée', value: 'approuvée' },
+                  { text: 'Refusée', value: 'rejetée' },
+                  { text: 'Annulée', value: 'annulée' }
+                ],
+                onFilter: (value, record) => record.status === value
               },
               {
                 title: 'Actions',

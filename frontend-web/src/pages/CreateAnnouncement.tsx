@@ -73,7 +73,8 @@ export default function CreateAnnouncement() {
         return;
       }
       
-      await createAnnonce({
+      console.log('[CreateAnnouncement] Création annonce avec userId:', userId);
+      const result = await createAnnonce({
         coordinates: [values.longitude, values.latitude], // [longitude, latitude]
         titre: values.titre,
         desc: values.description || '',
@@ -84,9 +85,15 @@ export default function CreateAnnouncement() {
         quatite: values.quatite || 1
       });
       
+      console.log('[CreateAnnouncement] Annonce créée, résultat:', result);
       message.success('Annonce créée avec succès ! Elle sera validée par un administrateur.');
       form.resetFields();
-      navigate('/my-announcements');
+      
+      // Attendre un peu pour que le backend enregistre l'annonce
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Rediriger vers Mes annonces
+      navigate('/my-announcements', { replace: true });
     } catch (e: any) {
       console.error('[CreateAnnouncement] Erreur:', e);
       message.error(e?.response?.data?.message || e?.message || 'Échec de création de l\'annonce');

@@ -58,9 +58,11 @@ public interface IAnnonce extends JpaRepository<Annonce, Long>,JpaSpecificationE
 	
 		
 	//nouvelle annonce 
-	@Query(value = "INSERT INTO Annonce (id, titre,description,date,status,categorie_id,commune_id,donnateur_id,geom,photo)"
-				+ " VALUES (:id, :titre, :desc,:date, 'déclarée',:categorie,:commune,:donnateur,  ST_SetSRID(ST_Point(:longitude,:latitude),4326),:photo)", nativeQuery = true)
-	boolean addAnnonce( @Param("id") Long id,@Param("titre") String titre, @Param("desc")  String desc,@Param("date")  Date date,
+	@Modifying
+	@Transactional
+	@Query(value = "INSERT INTO Annonce (id, titre,description,date,status,categorie_id,commune_id,donnateur_id,geom,photo,quantite)"
+				+ " VALUES (:id, :titre, :desc,:date, 'déclarée',:categorie,:commune,:donnateur,  ST_SetSRID(ST_Point(:longitude,:latitude),4326),:photo,1)", nativeQuery = true)
+	int addAnnonce( @Param("id") Long id,@Param("titre") String titre, @Param("desc")  String desc,@Param("date")  Date date,
 			@Param("categorie") Long categorie,
 			@Param("commune")  Long commune,  @Param("donnateur") Long donnateur,  @Param("longitude") double longitude,
 				@Param("latitude") double latitude,@Param("photo") String photo);

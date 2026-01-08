@@ -29,7 +29,10 @@ export default function Announcements() {
   const [interestedRecords, setInterestedRecords] = useState<InterestRecord[]>(() => {
     try {
       const stored = localStorage.getItem('sadaka_interest_records');
-      return stored ? JSON.parse(stored) : [];
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      // S'assurer que c'est un tableau
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -40,16 +43,26 @@ export default function Announcements() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [annonces, cats, comms] = await Promise.all([
-          getAnnonces(),
-          getCategories(),
-          getCommunes(),
+        const [annonces, cats, comms] = await Promise.allSettled([
+          getAnnonces().catch(() => []),
+          getCategories().catch(() => []),
+          getCommunes().catch(() => []),
         ]);
-        setData(annonces);
-        setCategories(cats);
-        setCommunes(comms);
+        
+        const annoncesData = annonces.status === 'fulfilled' ? annonces.value : [];
+        const catsData = cats.status === 'fulfilled' ? cats.value : [];
+        const commsData = comms.status === 'fulfilled' ? comms.value : [];
+        
+        // S'assurer que ce sont des tableaux
+        setData(Array.isArray(annoncesData) ? annoncesData : []);
+        setCategories(Array.isArray(catsData) ? catsData : []);
+        setCommunes(Array.isArray(commsData) ? commsData : []);
       } catch (error: any) {
+        console.error('[Announcements] Erreur:', error);
         message.error(error?.message || 'Erreur lors du chargement des données');
+        setData([]);
+        setCategories([]);
+        setCommunes([]);
       } finally {
         setLoading(false);
       }
@@ -59,6 +72,12 @@ export default function Announcements() {
 
   // Appliquer les filtres
   useEffect(() => {
+    // S'assurer que data est un tableau
+    if (!Array.isArray(data)) {
+      setFilteredData([]);
+      return;
+    }
+    
     let filtered = [...data];
 
     // Filtre par recherche (titre, description)
@@ -103,12 +122,17 @@ export default function Announcements() {
   }, [interestedRecords]);
 
   const isInterested = useMemo(
-    () => (announcementId: number) => interestedRecords.some((r) => r.announcementId === announcementId),
+    () => (announcementId: number) => {
+      if (!Array.isArray(interestedRecords)) return false;
+      return interestedRecords.some((r) => r.announcementId === announcementId);
+    },
     [interestedRecords]
   );
 
-  const getInterestId = (announcementId: number) =>
-    interestedRecords.find((r) => r.announcementId === announcementId)?.interestId;
+  const getInterestId = (announcementId: number) => {
+    if (!Array.isArray(interestedRecords)) return undefined;
+    return interestedRecords.find((r) => r.announcementId === announcementId)?.interestId;
+  };
 
   const handleToggleInterest = async (announcement: Annonce) => {
     if (!announcement) return;

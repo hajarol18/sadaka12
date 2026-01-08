@@ -15,12 +15,27 @@ const baseItems = [
 
 export default function AppLayout() {
   const location = useLocation();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, isAdmin } = useAuth();
+  
+  // Debug: afficher les infos utilisateur
+  if (isAuthenticated) {
+    console.log('[AppLayout] Utilisateur connecté:', {
+      id: user?.id,
+      email: user?.email,
+      role: user?.role,
+      isAdmin: isAdmin,
+      roleEquals: user?.role === UserRole.ADMIN
+    });
+  }
+  
+  // L'admin peut aussi créer des annonces (selon le cahier des charges)
+  // Donc on garde "Mes annonces" et "Créer" pour l'admin aussi
   const navItems = [
     ...baseItems,
     ...(isAuthenticated ? [{ key: '/my-announcements', icon: <SettingOutlined />, label: <Link to="/my-announcements">Mes annonces</Link> }] : []),
     ...(isAuthenticated ? [{ key: '/create-announcement', icon: <SettingOutlined />, label: <Link to="/create-announcement">Créer</Link> }] : []),
-    ...(user?.role === UserRole.ADMIN ? [{ key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Admin</Link> }] : [])
+    // Admin en dernier pour qu'il soit visible à droite
+    ...(isAdmin || user?.role === UserRole.ADMIN ? [{ key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Admin</Link> }] : [])
   ];
   const selectedKey = navItems.find(i => location.pathname === i.key)?.key ?? '/';
 

@@ -1,20 +1,28 @@
-import { Button, Form, Input, Typography, message } from 'antd';
+import { Button, Form, Input, Typography, message, Radio } from 'antd';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, loginAdmin } = useAuth();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+  const [userType, setUserType] = useState<'user' | 'admin'>('user');
 
   const onFinish = async (values: any) => {
     try {
       setSubmitting(true);
-      await login(values.email, values.password);
-      message.success('Connecté');
-      navigate('/');
+      
+      if (userType === 'admin') {
+        await loginAdmin(values.email, values.password);
+        message.success('Connecté en tant qu\'administrateur');
+        navigate('/admin');
+      } else {
+        await login(values.email, values.password);
+        message.success('Connecté');
+        navigate('/');
+      }
     } catch (e: any) {
       message.error(e?.message || 'Échec de connexion');
     } finally {
@@ -45,6 +53,16 @@ export default function Login() {
         </Typography.Text>
       </div>
       <Form form={form} layout="vertical" onFinish={onFinish}>
+        <Form.Item label="Type de connexion" style={{ marginBottom: 16 }}>
+          <Radio.Group 
+            value={userType} 
+            onChange={(e) => setUserType(e.target.value)}
+            buttonStyle="solid"
+          >
+            <Radio.Button value="user">Utilisateur</Radio.Button>
+            <Radio.Button value="admin">Administrateur</Radio.Button>
+          </Radio.Group>
+        </Form.Item>
         <Form.Item 
           label="Email" 
           name="email" 

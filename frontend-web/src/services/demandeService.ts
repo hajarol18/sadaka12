@@ -83,13 +83,19 @@ export async function hasRecentDemande(annonceId: number, userId: number): Promi
   try {
     const demandes = await getDemandesByUser(userId);
     
+    // S'assurer que demandes est un tableau
+    if (!Array.isArray(demandes)) {
+      console.warn('[hasRecentDemande] demandes n\'est pas un tableau:', demandes);
+      return false;
+    }
+    
     // Filtrer les demandes pour cette annonce
     const demandesPourAnnonce = demandes.filter((d: any) => {
       const annonceIdFromDemande = d.annonce?.id || d.annonce_id || d.annonceId;
       return annonceIdFromDemande === annonceId;
     });
     
-    if (demandesPourAnnonce.length === 0) {
+    if (!Array.isArray(demandesPourAnnonce) || demandesPourAnnonce.length === 0) {
       return false;
     }
     
