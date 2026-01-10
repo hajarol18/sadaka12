@@ -3,10 +3,13 @@ package com.sadaqah.sadaqah.controller;
 import java.text.DateFormat;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.json.JSONArray;
@@ -37,13 +40,31 @@ import com.sadaqah.sadaqah.utils.Annonce_Perso;
 public class AnnonceController {
 	
 	@Autowired
-	private AnnonceService annonceService; 
+	private AnnonceService annonceService;
+	
+	// Endpoint de test pour vérifier que le backend fonctionne
+	@GetMapping("/test")
+	public Map<String, String> test() {
+		Map<String, String> response = new HashMap<>();
+		response.put("status", "OK");
+		response.put("message", "Backend fonctionne!");
+		response.put("timestamp", new Date().toString());
+		return response;
+	} 
 	
 	//toutes annonces approuvées 
 	@GetMapping("/annonces")
 	public List<Annonce> findAll() {
-		//annonceService.findAnnonce().get(i).getGeom().getY()
-        return  annonceService.findAnnonce();
+		try {
+			System.out.println("[AnnonceController] /annonces appelé");
+			List<Annonce> result = annonceService.findAnnonce();
+			System.out.println("[AnnonceController] /annonces: " + (result != null ? result.size() : "null") + " annonces");
+			return result;
+		} catch (Exception e) {
+			System.err.println("[AnnonceController] ERREUR dans /annonces: " + e.getMessage());
+			e.printStackTrace();
+			throw e; // Re-lancer pour que Spring retourne 500 avec détails
+		}
     }
 	
 	//toutes annonces en cours de traitement  
@@ -53,7 +74,11 @@ public class AnnonceController {
 	        return  annonceService.findAnnonces_en_cours_traitement();
 	    }
 	
-	
+	//toutes annonces (tous statuts) - vue admin
+	@GetMapping("/annonces/all")
+	public List<Annonce> findAllAnnonces() {
+		return annonceService.findAllAnnonces();
+	}
 	
 	//toutes annonces for filter
 	@GetMapping("/annonces_perso")

@@ -38,6 +38,40 @@ export async function getAnnonces(): Promise<Annonce[]> {
 }
 
 /**
+ * Récupère toutes les annonces (tous statuts) - usage admin
+ */
+export async function getAllAnnonces(): Promise<Annonce[]> {
+  try {
+    console.log('[getAllAnnonces] Appel API:', `${BASE_URL}/annonces/all`);
+    const response = await api.get(`${BASE_URL}/annonces/all`);
+    console.log('[getAllAnnonces] Réponse brute:', response);
+    console.log('[getAllAnnonces] response.data:', response.data);
+    
+    let data = response.data;
+    
+    // Si la réponse est un objet avec 'value', extraire le tableau
+    if (data && typeof data === 'object' && !Array.isArray(data) && 'value' in data) {
+      data = data.value;
+      console.log('[getAllAnnonces] Données extraites de value:', data);
+    }
+    
+    // S'assurer que c'est un tableau
+    const annonces = Array.isArray(data) ? data : [];
+    console.log('[getAllAnnonces] Annonces finales:', annonces.length, 'annonces');
+    
+    return annonces;
+  } catch (error: any) {
+    console.error('[getAllAnnonces] Erreur:', error);
+    console.error('[getAllAnnonces] Erreur détaillée:', {
+      message: error?.message,
+      response: error?.response?.data,
+      status: error?.response?.status
+    });
+    return [];
+  }
+}
+
+/**
  * Récupère toutes les annonces en cours de traitement
  */
 export async function getAnnoncesEnCours(): Promise<Annonce[]> {
@@ -182,9 +216,10 @@ export async function createAnnonce(data: {
   // Pour les listes, Spring attend des paramètres répétés
   params.append('coordinates', data.coordinates[0].toString());
   params.append('coordinates', data.coordinates[1].toString());
-  // Note: quatite n'est pas encore supporté par le backend dans le POST
+  // Note: quantite est géré par défaut à 1 dans le backend (voir IAnnonce.addAnnonce)
 
   console.log('[createAnnonce] Paramètres envoyés:', params.toString());
+  console.log('[createAnnonce] Quantité (quatite):', data.quatite || 1);
   
   try {
     const response = await api.post(`${BASE_URL}/annonce`, params.toString(), {

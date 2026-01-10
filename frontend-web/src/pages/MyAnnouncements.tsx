@@ -2,7 +2,7 @@ import { Card, Table, Tag, Button, Empty, Typography, Space, Modal, InputNumber,
 import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getAnnoncesByUser } from '../services/annonceService';
-import { getDemandesByAnnonce } from '../services/demandeService';
+import { getDemandesByAnnonce, assignDemande } from '../services/demandeService';
 import { Link } from 'react-router-dom';
 import { PlusOutlined, UserOutlined, PhoneOutlined, MailOutlined, CheckOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import type { Annonce } from '../types/api';
@@ -74,20 +74,37 @@ export default function MyAnnouncements() {
 
   // Charger les annonces de l'utilisateur connecté
   useEffect(() => {
-    loadData();
+    if (isAuthenticated && user?.id) {
+      loadData();
+    }
   }, [isAuthenticated, user?.id]);
 
   // Recharger quand on arrive sur la page (pour capturer les nouvelles annonces)
+  // Cela capture aussi les redirections depuis CreateAnnouncement
   useEffect(() => {
-    // Recharger après un court délai pour s'assurer que la navigation est terminée
-    const timer = setTimeout(() => {
+    const handleFocus = () => {
+      // Recharger quand la fenêtre reprend le focus
       if (isAuthenticated && user?.id) {
+        console.log('[MyAnnouncements] Rechargement au focus de la fenêtre');
         loadData();
       }
-    }, 500);
+    };
     
-    return () => clearTimeout(timer);
-  }, []);
+    window.addEventListener('focus', handleFocus);
+    
+    // Recharger après un délai initial
+    const timer = setTimeout(() => {
+      if (isAuthenticated && user?.id) {
+        console.log('[MyAnnouncements] Rechargement automatique après 1 seconde');
+        loadData();
+      }
+    }, 1000);
+    
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isAuthenticated, user?.id]);
 
   // Filtrer les annonces par statut
   const filteredData = useMemo(() => {
@@ -150,26 +167,59 @@ export default function MyAnnouncements() {
   };
 
   const handleAssign = async () => {
-    if (!selectedAnnouncement || !selectedInterest) return;
+    if (!selectedAnnouncement || !selectedInterest || !user?.id) {
+      message.error('Données manquantes pour l\'assignation');
+      return;
+    }
     
     const available = (selectedAnnouncement.quatite || 0) - (selectedAnnouncement.donatedQuantity || 0);
     if (assignQuantity > available) {
-      message.error('Quantité demandée supérieure à la quantité disponible');
+      message.error(`Quantité demandée (${assignQuantity}) supérieure à la quantité disponible (${available})`);
+      return;
+    }
+
+    if (assignQuantity <= 0) {
+      message.error('La quantité doit être supérieure à 0');
       return;
     }
 
     try {
-      // Utiliser le service demandeService pour assigner
-      const announcementId = typeof selectedAnnouncement.id === 'number' ? selectedAnnouncement.id : parseInt(selectedAnnouncement.id) || 0;
-      const interestId = selectedInterest.id;
+      const demandeId = parseInt(selectedInterest.id) || 0;
+      const donnateurId = parseInt(user.id) || 0;
       
-      // Note: Le backend n'a pas encore d'endpoint pour assigner une quantité
-      // Pour l'instant, on affiche juste un message
-      message.success(`Quantité de ${assignQuantity} sera assignée (fonctionnalité en cours de développement)`);
+      if (demandeId === 0) {
+        message.error('ID de demande invalide');
+        return;
+      }
+      
+      if (donnateurId === 0) {
+        message.error('Erreur: utilisateur non identifié');
+        return;
+      }
+
+      // Vérifier que l'utilisateur est bien le donateur de cette annonce
+      const annonceDonnateurId = selectedAnnouncement.donnateur?.id || (selectedAnnouncement.donnateur as any)?.id;
+      if (!annonceDonnateurId || annonceDonnateurId !== donnateurId) {
+        message.error('Vous n\'êtes pas le donateur de cette annonce');
+        return;
+      }
+
+      console.log('[MyAnnouncements] Assignation quantité:', {
+        demandeId,
+        quantite: assignQuantity,
+        donnateurId,
+        annonceId: selectedAnnouncement.id
+      });
+
+      // Utiliser assignDemande du service (déjà importé)
+      await assignDemande(demandeId, assignQuantity, donnateurId);
+      
+      message.success(`Quantité de ${assignQuantity} assignée avec succès à ${selectedInterest.userName}`);
       setAssignModalOpen(false);
       setSelectedInterest(null);
       
       // Recharger les données
+      const announcementId = typeof selectedAnnouncement.id === 'number' ? selectedAnnouncement.id : parseInt(selectedAnnouncement.id) || 0;
       if (user?.id) {
         const userId = parseInt(user.id) || 0;
         if (userId > 0) {
@@ -177,7 +227,10 @@ export default function MyAnnouncements() {
             const annonces = await getAnnoncesByUser(userId);
             const annoncesArray = Array.isArray(annonces) ? annonces : [];
             setData(annoncesArray);
-            loadInterests(announcementId);
+            // Recharger les demandes pour voir le statut mis à jour
+            if (announcementId > 0) {
+              loadInterests(announcementId);
+            }
           } catch (e) {
             console.error('[MyAnnouncements] Erreur rechargement:', e);
           }
@@ -185,7 +238,8 @@ export default function MyAnnouncements() {
       }
     } catch (e: any) {
       console.error('[MyAnnouncements] Erreur assignation:', e);
-      message.error(e?.message || 'Erreur lors de l\'assignation');
+      const errorMessage = e?.message || e?.response?.data?.message || 'Erreur lors de l\'assignation';
+      message.error(errorMessage);
     }
   };
 
@@ -245,8 +299,8 @@ export default function MyAnnouncements() {
     const labels: Record<string, string> = {
       'déclarée': 'En attente de validation',
       'approuvée': '✅ Approuvée',
-      'rejetée': '❌ Refusée',
-      'annulée': 'Annulée',
+      'rejetée': '❌ Refusée (par admin)',
+      'annulée': '🗑️ Annulée (par vous)',
       'modifiée': 'Modifiée (en attente)',
       'PENDING': 'En attente',
       'APPROVED': '✅ Approuvée',
@@ -297,8 +351,8 @@ export default function MyAnnouncements() {
                 { label: 'Toutes', value: undefined },
                 { label: `En attente (${statusStats['déclarée']})`, value: 'déclarée' },
                 { label: `Approuvées (${statusStats['approuvée']})`, value: 'approuvée' },
-                { label: `Refusées (${statusStats['rejetée']})`, value: 'rejetée' },
-                { label: `Annulées (${statusStats['annulée']})`, value: 'annulée' }
+                { label: `Refusées par admin (${statusStats['rejetée']})`, value: 'rejetée' },
+                { label: `Annulées par vous (${statusStats['annulée']})`, value: 'annulée' }
               ]}
             />
           </Space>
@@ -318,7 +372,10 @@ export default function MyAnnouncements() {
                 <Text><CheckCircleOutlined /> Approuvées: {statusStats['approuvée']}</Text>
               </Badge>
               <Badge count={statusStats['rejetée']} showZero color="red">
-                <Text><CloseCircleOutlined /> Refusées: {statusStats['rejetée']}</Text>
+                <Text><CloseCircleOutlined /> Refusées (par admin): {statusStats['rejetée']}</Text>
+              </Badge>
+              <Badge count={statusStats['annulée']} showZero color="default">
+                <Text>Annulées (par vous): {statusStats['annulée']}</Text>
               </Badge>
             </Space>
           </div>
@@ -421,8 +478,8 @@ export default function MyAnnouncements() {
                 filters: [
                   { text: 'En attente', value: 'déclarée' },
                   { text: 'Approuvée', value: 'approuvée' },
-                  { text: 'Refusée', value: 'rejetée' },
-                  { text: 'Annulée', value: 'annulée' }
+                  { text: 'Refusée (par admin)', value: 'rejetée' },
+                  { text: 'Annulée (par vous)', value: 'annulée' }
                 ],
                 onFilter: (value, record) => record.status === value
               },

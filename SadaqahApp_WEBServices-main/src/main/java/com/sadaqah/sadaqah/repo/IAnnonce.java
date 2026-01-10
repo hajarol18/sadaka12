@@ -45,12 +45,12 @@ public interface IAnnonce extends JpaRepository<Annonce, Long>,JpaSpecificationE
 	List<Annonce> findAnnoncesWithinCategorie(@Param("categorie")  Long categorie);
 	
 	//Filtrer par id de commune 
-	@Query(value = "SELECT * FROM Annonce a"+" WHERE a.commune_id=:commune", nativeQuery = true)
+	@Query(value = "SELECT * FROM Annonce a"+" WHERE a.commune_gid=:commune", nativeQuery = true)
 	List<Annonce> findAnnoncesWithinCommune(@Param("commune")  Long commune);
 	
 	
 	//ajout d'une nouvelle annonce 
-	@Query(value = "INSERT INTO Annonce (id,titre, donnateur_id,categorie_id, commune_id,geom)"
+	@Query(value = "INSERT INTO Annonce (id,titre, donnateur_id,categorie_id, commune_gid,geom)"
 			+ " VALUES (12,:titre, 1, 1, 1, ST_SetSRID(ST_Point(:userLongitude,:userLatitude),4326))", nativeQuery = true)
 	void insert(@Param("titre") String titre,@Param("userLongitude") Double userLongitude,@Param("userLatitude")  Double userLatitude);
 	
@@ -60,8 +60,8 @@ public interface IAnnonce extends JpaRepository<Annonce, Long>,JpaSpecificationE
 	//nouvelle annonce 
 	@Modifying
 	@Transactional
-	@Query(value = "INSERT INTO Annonce (id, titre,description,date,status,categorie_id,commune_id,donnateur_id,geom,photo,quantite)"
-				+ " VALUES (:id, :titre, :desc,:date, 'déclarée',:categorie,:commune,:donnateur,  ST_SetSRID(ST_Point(:longitude,:latitude),4326),:photo,1)", nativeQuery = true)
+	@Query(value = "INSERT INTO Annonce (id, titre,description,date,status,categorie_id,commune_gid,donnateur_id,geom,photo,quantite)"
+			+ " VALUES (:id, :titre, :desc,:date, 'déclarée',:categorie,:commune,:donnateur,  ST_SetSRID(ST_Point(:longitude,:latitude),4326),:photo,1)", nativeQuery = true)
 	int addAnnonce( @Param("id") Long id,@Param("titre") String titre, @Param("desc")  String desc,@Param("date")  Date date,
 			@Param("categorie") Long categorie,
 			@Param("commune")  Long commune,  @Param("donnateur") Long donnateur,  @Param("longitude") double longitude,
@@ -74,7 +74,7 @@ public interface IAnnonce extends JpaRepository<Annonce, Long>,JpaSpecificationE
 	
 	//nouvelle annonce 
 		@Query(value = "UPDATE Annonce set titre=:titre,description= :desc,date=:date,status='modifiée',categorie_id=:categorie,"
-				+ "commune_id=:commune,geom=ST_SetSRID(ST_Point(:longitude,:latitude),4326),photo=:photo "
+				+ "commune_gid=:commune,geom=ST_SetSRID(ST_Point(:longitude,:latitude),4326),photo=:photo "
 					+ "where id=:id", nativeQuery = true)
 		int updateAnnonce( @Param("id") Long id,@Param("titre") String titre, @Param("desc")  String desc,@Param("date")  Date date,
 				@Param("categorie") Long categorie,

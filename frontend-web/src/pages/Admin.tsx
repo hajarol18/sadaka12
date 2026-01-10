@@ -3,7 +3,7 @@ import { DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
 import { api } from '../utils/api';
 import { exportAllDataAsJSON, importDataFromJSON } from '../utils/mock';
-import { getAnnoncesEnCours, approveAnnonce, rejectAnnonce } from '../services/annonceService';
+import { getAnnoncesEnCours, approveAnnonce, rejectAnnonce, getAllAnnonces } from '../services/annonceService';
 import { getUtilisateurs } from '../services/utilisateurService';
 import type { Annonce, Utilisateur } from '../types/api';
 
@@ -19,6 +19,9 @@ export default function Admin() {
 
   const [pending, setPending] = useState<Annonce[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
+  
+  const [allAnnonces, setAllAnnonces] = useState<Annonce[]>([]);
+  const [allAnnoncesLoading, setAllAnnoncesLoading] = useState(false);
   
   const [users, setUsers] = useState<Utilisateur[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -85,19 +88,83 @@ export default function Admin() {
   const loadPending = async () => {
     setPendingLoading(true);
     try {
+      console.log('[Admin] ========================================');
       console.log('[Admin] Chargement des annonces en cours...');
       const annonces = await getAnnoncesEnCours();
       console.log('[Admin] Annonces en cours reçues:', annonces);
+      console.log('[Admin] Nombre d\'annonces:', annonces?.length || 0);
+      
+      if (annonces && annonces.length > 0) {
+        annonces.forEach((a: any, index: number) => {
+          console.log(`[Admin] Annonce ${index + 1}:`, {
+            id: a.id,
+            titre: a.titre,
+            status: a.status,
+            donnateur_id: a.donnateur?.id || a.donnateur_id
+          });
+        });
+      } else {
+        console.warn('[Admin] ⚠️ AUCUNE ANNONCE EN ATTENTE TROUVEE');
+        console.warn('[Admin] Vérifiez que des annonces avec status="déclarée" existent dans la base');
+      }
       
       // S'assurer que c'est un tableau
       const annoncesArray = Array.isArray(annonces) ? annonces : [];
       setPending(annoncesArray);
+      
+      if (annoncesArray.length === 0) {
+        message.warning('Aucune annonce en attente de validation');
+      }
     } catch (error: any) {
-      console.error('[Admin] Erreur lors du chargement des annonces en cours:', error);
+      console.error('[Admin] ❌ ERREUR lors du chargement des annonces en cours:', error);
+      console.error('[Admin] Détails erreur:', {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+        url: error?.config?.url
+      });
       message.error('Erreur lors du chargement des annonces en attente');
       setPending([]);
     } finally {
       setPendingLoading(false);
+      console.log('[Admin] ========================================');
+    }
+  };
+
+  const loadAllAnnonces = async () => {
+    setAllAnnoncesLoading(true);
+    try {
+      console.log('[Admin] Chargement de toutes les annonces...');
+      const res = await getAllAnnonces();
+      const all = Array.isArray(res) ? res : [];
+      console.log('[Admin] Toutes les annonces reçues:', all.length);
+      // Debug: vérifier la structure des catégories
+      if (all.length > 0 && all[0]?.categorie) {
+        console.log('[Admin] Exemple de catégorie reçue:', all[0].categorie);
+        console.log('[Admin] catégorie.name:', (all[0].categorie as any)?.name);
+        console.log('[Admin] catégorie.nom:', all[0].categorie?.nom);
+      }
+      setAllAnnonces(all);
+    } catch (error: any) {
+      console.error('[Admin] Erreur lors du chargement de toutes les annonces:', error);
+      // Fallback: essayer de charger approuvées + en cours
+      try {
+        const [approved, pendingAnnonces] = await Promise.all([
+          getAnnoncesEnCours(),
+          getAnnoncesEnCours()
+        ]);
+        const approvedList = Array.isArray(approved) ? approved : [];
+        const pendingList = Array.isArray(pendingAnnonces) ? pendingAnnonces : [];
+        const byId = new Map<number, Annonce>();
+        approvedList.forEach((annonce) => byId.set(annonce.id, annonce));
+        pendingList.forEach((annonce) => byId.set(annonce.id, annonce));
+        setAllAnnonces(Array.from(byId.values()));
+      } catch {
+        message.error('Erreur lors du chargement des annonces');
+        setAllAnnonces([]);
+      }
+    } finally {
+      setAllAnnoncesLoading(false);
     }
   };
 
@@ -142,6 +209,7 @@ export default function Admin() {
   useEffect(() => {
     loadRoles();
     loadPending();
+    loadAllAnnonces();
     loadUsers();
     loadNewsletter();
   }, []);
@@ -191,15 +259,59 @@ export default function Admin() {
       await approveAnnonce(annonceId);
       message.success('Annonce validée avec succès');
       loadPending();
+      loadAllAnnonces();
     } catch (error: any) {
       console.error('[Admin] Erreur lors de l\'approbation:', error);
       message.error('Erreur lors de la validation de l\'annonce');
     }
   };
-  const openRejectModal = (id: string) => {
+  const openRejectModal = (id: string | number) => {
     setSelectedDonationId(id);
     setRejectReason('');
     setRejectModalOpen(true);
+  };
+
+  const getStatusLabel = (status?: string) => {
+    switch (status) {
+      case 'déclarée':
+        return 'En attente';
+      case 'approuvée':
+        return 'Approuvée';
+      case 'rejetée':
+        return 'Rejetée (par admin)';
+      case 'annulée':
+        return 'Annulée (par utilisateur)';
+      case 'modifiée':
+        return 'Modifiée';
+      case 'attribuée':
+        return 'Attribuée';
+      default:
+        return status || 'Inconnu';
+    }
+  };
+
+  const getStatusColor = (status?: string) => {
+    switch (status) {
+      case 'déclarée':
+        return 'orange';
+      case 'approuvée':
+        return 'green';
+      case 'rejetée':
+        return 'red';
+      case 'annulée':
+        return 'default';
+      case 'modifiée':
+        return 'gold';
+      case 'attribuée':
+        return 'blue';
+      default:
+        return 'blue';
+    }
+  };
+
+  const isPendingStatus = (status?: string) => {
+    const normalized = status?.toLowerCase();
+    return normalized === 'déclarée' || normalized === 'modifiée' || normalized === 'declared' || normalized === 'pending';
   };
 
   const reject = async () => {
@@ -208,11 +320,12 @@ export default function Admin() {
       const annonceId = typeof selectedDonationId === 'string' ? parseInt(selectedDonationId) : selectedDonationId;
       console.log('[Admin] Rejet de l\'annonce:', annonceId, 'Motif:', rejectReason);
       await rejectAnnonce(annonceId);
-      message.success('Annonce rejetée avec succès');
+      message.success(rejectReason ? 'Annonce rejetée avec motif' : 'Annonce rejetée');
       setRejectModalOpen(false);
       setSelectedDonationId(null);
       setRejectReason('');
       loadPending();
+      loadAllAnnonces();
     } catch (error: any) {
       console.error('[Admin] Erreur lors du rejet:', error);
       message.error('Erreur lors du rejet de l\'annonce');
@@ -315,9 +428,10 @@ export default function Admin() {
                     },
                     { 
                       title: 'Catégorie', 
-                      dataIndex: ['categorie', 'nom'],
-                      render: (nom: string, record: Annonce) => {
-                        const catName = record.categorie?.nom || record.categorie?.name || 'Non spécifiée';
+                      dataIndex: ['categorie', 'name'],
+                      render: (name: string, record: Annonce) => {
+                        // Jackson sérialise getName() comme 'name' (pas 'nom')
+                        const catName = (record.categorie as any)?.name || record.categorie?.nom || 'Non spécifiée';
                         return catName;
                       }
                     },
@@ -339,11 +453,18 @@ export default function Admin() {
                       render: (date: string) => date ? new Date(date).toLocaleDateString('fr-FR') : '-'
                     },
                     {
+                      title: 'Statut',
+                      dataIndex: 'status',
+                      render: (status: string) => (
+                        <Tag color={getStatusColor(status)}>{getStatusLabel(status)}</Tag>
+                      )
+                    },
+                    {
                       title: 'Actions',
                       render: (_, r: Annonce) => (
                         <Space>
                           <Button type="primary" size="small" onClick={() => approve(r.id)}>Valider</Button>
-                          <Button danger size="small" onClick={() => openRejectModal(r.id.toString())}>Rejeter</Button>
+                          <Button danger size="small" onClick={() => openRejectModal(r.id)}>Rejeter</Button>
                         </Space>
                       )
                     }
@@ -370,6 +491,71 @@ export default function Admin() {
                     </Form.Item>
                   </Form>
                 </Modal>
+              </Card>
+            )
+          },
+          {
+            key: 'all',
+            label: 'Toutes les annonces',
+            children: (
+              <Card title="Toutes les annonces avec statuts">
+                <Table
+                  rowKey="id"
+                  loading={allAnnoncesLoading}
+                  dataSource={Array.isArray(allAnnonces) ? allAnnonces : []}
+                  columns={[
+                    { 
+                      title: 'Titre',
+                      dataIndex: 'titre',
+                      render: (text: string) => text || 'Sans titre'
+                    },
+                    { 
+                      title: 'Catégorie',
+                      dataIndex: 'categorie',
+                      render: (_: unknown, record: Annonce) => {
+                        // Dans Category.java, le champ s'appelle 'nom' mais le getter est 'getName()'
+                        // Jackson sérialise avec le getter, donc le JSON contient 'name' (pas 'nom')
+                        const catName = (record.categorie as any)?.name || record.categorie?.nom || 'Non précisée';
+                        return catName;
+                      }
+                    },
+                    { 
+                      title: 'Quantité',
+                      dataIndex: 'quatite',
+                      render: (value: number) => value ?? '-'
+                    },
+                    { 
+                      title: 'Commune',
+                      dataIndex: 'commune',
+                      render: (_: unknown, record: Annonce) => record.commune?.nomCommune || 'Non précisée'
+                    },
+                    { 
+                      title: 'Date',
+                      dataIndex: 'date',
+                      render: (date: string) => (date ? new Date(date).toLocaleDateString('fr-FR') : '-')
+                    },
+                    {
+                      title: 'Statut',
+                      dataIndex: 'status',
+                      render: (status: string) => (
+                        <Tag color={getStatusColor(status)}>{getStatusLabel(status)}</Tag>
+                      )
+                    },
+                    {
+                      title: 'Actions',
+                      render: (_, record: Annonce) => (
+                        isPendingStatus(record.status) ? (
+                          <Space>
+                            <Button type="primary" size="small" onClick={() => approve(record.id)}>Valider</Button>
+                            <Button danger size="small" onClick={() => openRejectModal(record.id)}>Rejeter</Button>
+                          </Space>
+                        ) : (
+                          <Typography.Text type="secondary">Aucune</Typography.Text>
+                        )
+                      )
+                    }
+                  ]}
+                />
               </Card>
             )
           },

@@ -1,17 +1,15 @@
-import { Button, Card, Col, DatePicker, Drawer, Input, Row, Select, Slider, Table, Tag, message, Divider } from 'antd';
+import { Button, Card, Col, DatePicker, Drawer, Input, Row, Select, Table, Tag, message, Divider } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { MailOutlined, PhoneOutlined, UserOutlined } from '@ant-design/icons';
 import { getAnnonces, getAnnoncesForFilter } from '../services/annonceService';
 import { getCategories } from '../services/categoryService';
 import { getCommunes } from '../services/communeService';
+import RequestButton from '../components/RequestButton';
+import { useAuth } from '../context/AuthContext';
 import type { Annonce, Category, Commune } from '../types/api';
 
-type InterestRecord = {
-  announcementId: number;
-  interestId: string;
-};
-
 export default function Announcements() {
+  const { user, isAuthenticated } = useAuth();
   const [data, setData] = useState<Annonce[]>([]);
   const [filteredData, setFilteredData] = useState<Annonce[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,20 +21,7 @@ export default function Announcements() {
   const [categoryId, setCategoryId] = useState<number | undefined>();
   const [communeIds, setCommuneIds] = useState<number[]>([]);
   const [dateRange, setDateRange] = useState<any>();
-  const [distanceKm, setDistanceKm] = useState<number>(0);
   const [selected, setSelected] = useState<Annonce | null>(null);
-  
-  const [interestedRecords, setInterestedRecords] = useState<InterestRecord[]>(() => {
-    try {
-      const stored = localStorage.getItem('sadaka_interest_records');
-      if (!stored) return [];
-      const parsed = JSON.parse(stored);
-      // S'assurer que c'est un tableau
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
 
   // Charger les données initiales
   useEffect(() => {
@@ -54,9 +39,16 @@ export default function Announcements() {
         const commsData = comms.status === 'fulfilled' ? comms.value : [];
         
         // S'assurer que ce sont des tableaux
-        setData(Array.isArray(annoncesData) ? annoncesData : []);
+        const annoncesArray = Array.isArray(annoncesData) ? annoncesData : [];
+        console.log('[Announcements] Annonces chargées:', annoncesArray.length, annoncesArray);
+        setData(annoncesArray);
         setCategories(Array.isArray(catsData) ? catsData : []);
         setCommunes(Array.isArray(commsData) ? commsData : []);
+        
+        if (annoncesArray.length === 0) {
+          console.warn('[Announcements] ⚠️ Aucune annonce trouvée!');
+          console.warn('[Announcements] Vérifiez que le backend est démarré et accessible');
+        }
       } catch (error: any) {
         console.error('[Announcements] Erreur:', error);
         message.error(error?.message || 'Erreur lors du chargement des données');
@@ -111,50 +103,29 @@ export default function Announcements() {
       });
     }
 
-    // Filtre par distance (nécessite la géolocalisation de l'utilisateur)
-    // Pour l'instant, on ignore ce filtre car il nécessite la position de l'utilisateur
-
     setFilteredData(filtered);
-  }, [data, search, categoryId, communeIds, dateRange, distanceKm]);
+    console.log('[Announcements] Filtres appliqués:', {
+      totalData: data.length,
+      filteredCount: filtered.length,
+      search,
+      categoryId,
+      communeIds,
+      dateRange
+    });
+  }, [data, search, categoryId, communeIds, dateRange]);
 
-  useEffect(() => {
-    localStorage.setItem('sadaka_interest_records', JSON.stringify(interestedRecords));
-  }, [interestedRecords]);
-
-  const isInterested = useMemo(
-    () => (announcementId: number) => {
-      if (!Array.isArray(interestedRecords)) return false;
-      return interestedRecords.some((r) => r.announcementId === announcementId);
-    },
-    [interestedRecords]
-  );
-
-  const getInterestId = (announcementId: number) => {
-    if (!Array.isArray(interestedRecords)) return undefined;
-    return interestedRecords.find((r) => r.announcementId === announcementId)?.interestId;
-  };
-
-  const handleToggleInterest = async (announcement: Annonce) => {
-    if (!announcement) return;
-    const alreadyInterested = isInterested(announcement.id);
-    try {
-      if (!alreadyInterested) {
-        // TODO: Implémenter l'endpoint de demande d'intérêt quand il sera disponible
-        const interestId = `local-${Date.now()}`;
-        setInterestedRecords((prev) => [...prev, { announcementId: announcement.id, interestId }]);
-        message.success('Demande d\'intérêt enregistrée');
-        setSelected(null);
-      } else {
-        const interestId = getInterestId(announcement.id);
-        // TODO: Implémenter la suppression de demande d'intérêt
-        setInterestedRecords((prev) => prev.filter((r) => r.announcementId !== announcement.id));
-        message.info('Demande d\'intérêt retirée');
-        setSelected(null);
+  // Vérifier si l'utilisateur connecté est le donateur d'une annonce
+  const isOwner = useMemo(
+    () => (annonce: Annonce) => {
+      if (!isAuthenticated || !user?.id || !annonce?.donnateur) {
+        return false;
       }
-    } catch (e: any) {
-      message.error(e?.message || 'Action impossible');
-    }
-  };
+      const donnateurId = annonce.donnateur?.id || (annonce.donnateur as any)?.id || null;
+      const userId = parseInt(user.id) || 0;
+      return donnateurId !== null && (donnateurId === userId || donnateurId.toString() === user.id);
+    },
+    [isAuthenticated, user?.id]
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -235,19 +206,6 @@ export default function Announcements() {
               format="DD/MM/YYYY"
             />
           </Col>
-          <Col xs={24} md={8}>
-            <div>
-              <div>Distance (km) - À implémenter</div>
-              <Slider 
-                min={0} 
-                max={50} 
-                step={1} 
-                value={distanceKm} 
-                onChange={setDistanceKm}
-                disabled
-              />
-            </div>
-          </Col>
         </Row>
       </Card>
 
@@ -255,7 +213,10 @@ export default function Announcements() {
         <Table
           rowKey="id"
           loading={loading}
-          dataSource={filteredData}
+          dataSource={Array.isArray(filteredData) ? filteredData : []}
+          locale={{
+            emptyText: loading ? 'Chargement...' : 'Aucune annonce trouvée. Vérifiez que le backend est démarré.'
+          }}
           columns={[
             { 
               title: 'Titre', 
@@ -264,8 +225,12 @@ export default function Announcements() {
             },
             {
               title: 'Catégorie',
-              dataIndex: ['categorie', 'nom'],
-              render: (nom) => nom || 'Non spécifiée'
+              dataIndex: ['categorie'],
+              render: (categorie: any, record: Annonce) => {
+                // Le backend peut sérialiser comme 'name' ou 'nom' selon Jackson
+                const catName = (record.categorie as any)?.name || record.categorie?.nom || 'Non spécifiée';
+                return catName;
+              }
             },
             { 
               title: 'Quantité', 
@@ -319,7 +284,7 @@ export default function Announcements() {
               <div style={{ marginBottom: 8 }}>
                 <strong style={{ color: '#52c41a' }}>Catégorie:</strong>
                 <Tag color="green" style={{ marginLeft: 8 }}>
-                  {selected.categorie?.nom || 'Non spécifiée'}
+                  {(selected.categorie as any)?.name || selected.categorie?.nom || 'Non spécifiée'}
                 </Tag>
               </div>
               <div style={{ marginBottom: 8 }}>
@@ -391,15 +356,28 @@ export default function Announcements() {
                 </div>
               </>
             )}
-            <Button
-              type={isInterested(selected.id) ? 'default' : 'primary'}
-              danger={isInterested(selected.id)}
-              size="large"
-              block
-              onClick={() => handleToggleInterest(selected)}
-            >
-              {isInterested(selected.id) ? 'Retirer ma demande' : 'Je suis intéressé(e)'}
-            </Button>
+            <Divider />
+            <div style={{ textAlign: 'center' }}>
+              {isOwner(selected) ? (
+                <div style={{ padding: '16px', background: '#fffbe6', borderRadius: 4, border: '1px solid #ffe58f' }}>
+                  <Tag color="orange" style={{ fontSize: 14, padding: '4px 12px' }}>
+                    ⚠️ C'est votre propre annonce
+                  </Tag>
+                  <p style={{ marginTop: 8, marginBottom: 0, color: '#666', fontSize: 13 }}>
+                    Vous ne pouvez pas faire de demande sur votre propre annonce.
+                    Gérez les demandes dans "Mes annonces".
+                  </p>
+                </div>
+              ) : (
+                <RequestButton 
+                  annonce={selected} 
+                  onSuccess={() => {
+                    // Recharger les annonces après une demande réussie si nécessaire
+                    setSelected(null);
+                  }}
+                />
+              )}
+            </div>
           </div>
         )}
       </Drawer>

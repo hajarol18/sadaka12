@@ -51,7 +51,12 @@ export default function CreateAnnouncement() {
   }, [isAuthenticated, navigate]);
 
   const onFinish = async (values: any) => {
+    console.log('[CreateAnnouncement] ========================================');
+    console.log('[CreateAnnouncement] Début de la création d\'annonce');
+    console.log('[CreateAnnouncement] Valeurs du formulaire:', values);
+    
     if (!user?.id) {
+      console.error('[CreateAnnouncement] ❌ Utilisateur non connecté');
       message.error('Vous devez être connecté');
       return;
     }
@@ -59,21 +64,59 @@ export default function CreateAnnouncement() {
     try {
       setSubmitting(true);
       
+      // Vérifier que tous les champs requis sont présents
+      if (!values.titre) {
+        console.error('[CreateAnnouncement] ❌ Titre manquant');
+        message.error('Le titre est requis');
+        return;
+      }
+      if (!values.categorie) {
+        console.error('[CreateAnnouncement] ❌ Catégorie manquante');
+        message.error('La catégorie est requise');
+        return;
+      }
+      if (!values.commune) {
+        console.error('[CreateAnnouncement] ❌ Commune manquante');
+        message.error('La commune est requise');
+        return;
+      }
+      if (!values.longitude || !values.latitude) {
+        console.error('[CreateAnnouncement] ❌ Coordonnées manquantes:', {
+          longitude: values.longitude,
+          latitude: values.latitude
+        });
+        message.error('Les coordonnées GPS sont requises');
+        return;
+      }
+      
       // Récupérer la commune sélectionnée
       const selectedCommune = communes.find(c => c.gid === values.commune);
       if (!selectedCommune) {
-        message.error('Commune invalide');
+        console.error('[CreateAnnouncement] ❌ Commune invalide:', values.commune);
+        console.error('[CreateAnnouncement] Communes disponibles:', communes.map(c => ({ gid: c.gid, nom: c.nomCommune })));
+        message.error('Commune invalide. Veuillez sélectionner une commune dans la liste.');
         return;
       }
 
       // Créer l'annonce avec le backend réel
       const userId = parseInt(user.id) || 0;
       if (userId === 0) {
+        console.error('[CreateAnnouncement] ❌ UserId invalide:', user.id);
         message.error('Erreur: utilisateur non identifié');
         return;
       }
       
-      console.log('[CreateAnnouncement] Création annonce avec userId:', userId);
+      console.log('[CreateAnnouncement] ✅ Données validées:');
+      console.log('  - userId:', userId);
+      console.log('  - titre:', values.titre);
+      console.log('  - categorie:', values.categorie);
+      console.log('  - commune:', values.commune, '(', selectedCommune.nomCommune, ')');
+      console.log('  - longitude:', values.longitude);
+      console.log('  - latitude:', values.latitude);
+      console.log('  - quatite:', values.quatite || 1);
+      console.log('  - description:', values.description?.substring(0, 50) + '...');
+      
+      console.log('[CreateAnnouncement] Appel createAnnonce...');
       const result = await createAnnonce({
         coordinates: [values.longitude, values.latitude], // [longitude, latitude]
         titre: values.titre,
@@ -85,20 +128,32 @@ export default function CreateAnnouncement() {
         quatite: values.quatite || 1
       });
       
-      console.log('[CreateAnnouncement] Annonce créée, résultat:', result);
+      console.log('[CreateAnnouncement] ✅ Annonce créée, résultat:', result);
       message.success('Annonce créée avec succès ! Elle sera validée par un administrateur.');
       form.resetFields();
       
       // Attendre un peu pour que le backend enregistre l'annonce
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Rediriger vers Mes annonces
-      navigate('/my-announcements', { replace: true });
+      // Rediriger vers Mes annonces avec un paramètre pour forcer le rechargement
+      navigate('/my-announcements', { 
+        replace: true,
+        state: { refresh: true, timestamp: Date.now() }
+      });
     } catch (e: any) {
-      console.error('[CreateAnnouncement] Erreur:', e);
-      message.error(e?.response?.data?.message || e?.message || 'Échec de création de l\'annonce');
+      console.error('[CreateAnnouncement] ❌ ERREUR lors de la création:', e);
+      console.error('[CreateAnnouncement] Détails erreur:', {
+        message: e?.message,
+        response: e?.response?.data,
+        status: e?.response?.status,
+        url: e?.config?.url
+      });
+      const errorMessage = e?.response?.data?.message || e?.message || 'Échec de création de l\'annonce';
+      console.error('[CreateAnnouncement] Message d\'erreur:', errorMessage);
+      message.error(errorMessage);
     } finally {
       setSubmitting(false);
+      console.log('[CreateAnnouncement] ========================================');
     }
   };
 
@@ -306,11 +361,27 @@ export default function CreateAnnouncement() {
                       );
                     } else {
                       // Coordonnées valides en WGS84
-                      form.setFieldsValue({
-                        latitude: lat,
-                        longitude: lng
-                      });
-                      message.success(`Coordonnées GPS mises à jour pour ${selectedCommune.nomCommune}`);
+                      // Ajouter un petit décalage aléatoire pour éviter les coordonnées exactement identiques
+                      // Si plusieurs annonces existent déjà pour cette commune, on décale légèrement
+                      const randomOffset = (Math.random() - 0.5) * 0.001; // ~50 mètres max de décalage
+                      const offsetLat = lat + randomOffset * 0.5;
+                      const offsetLng = lng + randomOffset;
+                      
+                      // Vérifier que les coordonnées décalées sont toujours dans le Maroc
+                      if (offsetLat >= 20 && offsetLat <= 36 && offsetLng >= -17 && offsetLng <= -1) {
+                        form.setFieldsValue({
+                          latitude: Number(offsetLat.toFixed(6)),
+                          longitude: Number(offsetLng.toFixed(6))
+                        });
+                      } else {
+                        // Si le décalage sort du Maroc, utiliser les coordonnées originales
+                        form.setFieldsValue({
+                          latitude: Number(lat.toFixed(6)),
+                          longitude: Number(lng.toFixed(6))
+                        });
+                      }
+                      
+                      message.success(`Coordonnées GPS mises à jour pour ${selectedCommune.nomCommune} (avec petit décalage pour éviter la superposition)`);
                     }
                   }
                 }}

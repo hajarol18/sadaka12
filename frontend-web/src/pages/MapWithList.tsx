@@ -1,65 +1,71 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Card, Col, Row, Select, Input, DatePicker, Table, Tag, Typography, Button, Spin, message } from 'antd';
+import { Card, Col, Row, Select, Input, DatePicker, Table, Tag, Typography, Button, Spin, message, Badge } from 'antd';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import { GiftOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import { GiftOutlined, EnvironmentOutlined, FilterOutlined, ClearOutlined } from '@ant-design/icons';
+import dayjs, { Dayjs } from 'dayjs';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { getAnnonces } from '../services/annonceService';
 import { getCategories } from '../services/categoryService';
 import { getCommunes } from '../services/communeService';
 import RequestButton from '../components/RequestButton';
+import { 
+  prepareAnnouncementsWithOffsets, 
+  createCategoryIcon,
+  extractCoordinates,
+  isValidMoroccoCoordinates
+} from '../utils/mapHelpers';
 import type { Annonce, Category, Commune } from '../types/api';
 
 const { Title, Text, Paragraph } = Typography;
 
-// Fix default icon path
-const defaultIcon = new L.Icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-// Composant pour zoomer sur un point spécifique
-function MapController({ selectedAnnouncement, announcements }: { selectedAnnouncement: Annonce | null; announcements: Annonce[] }) {
+// Composant pour zoomer sur un point spécifique et ajuster la vue
+function MapController({ 
+  selectedAnnouncement, 
+  announcements, 
+  shouldFitBounds 
+}: { 
+  selectedAnnouncement: Annonce | null; 
+  announcements: Annonce[]; 
+  shouldFitBounds: boolean;
+}) {
   const map = useMap();
   const hasZoomedRef = useRef(false);
 
   useEffect(() => {
-    if (selectedAnnouncement && selectedAnnouncement.geom?.coordinates) {
-      const [lng, lat] = selectedAnnouncement.geom.coordinates;
-      if (lat && lng) {
-        map.setView([lat, lng], 14, { animate: true });
+    // Si une annonce est sélectionnée, zoomer dessus
+    if (selectedAnnouncement) {
+      const coords = extractCoordinates(selectedAnnouncement);
+      if (coords) {
+        map.setView([coords.lat, coords.lng], 15, { animate: true, duration: 0.8 });
         hasZoomedRef.current = true;
+        return;
       }
-    } else if (announcements.length > 0 && !hasZoomedRef.current) {
-      // Ajuster la vue pour montrer tous les points
-      const validAnnouncements = announcements.filter(a => {
-        if (!a.geom || !a.geom.coordinates) return false;
-        const [lng, lat] = a.geom.coordinates;
-        return lat && lng;
-      });
+    }
+
+    // Sinon, ajuster la vue pour montrer tous les points (si demandé)
+    if (shouldFitBounds && announcements.length > 0 && !hasZoomedRef.current) {
+      const validCoords = announcements
+        .map(a => extractCoordinates(a))
+        .filter((coords): coords is { lat: number; lng: number } => coords !== null);
       
-      if (validAnnouncements.length > 0) {
-        const bounds = validAnnouncements.map(a => {
-          const [lng, lat] = a.geom!.coordinates;
-          return [lat, lng] as [number, number];
-        });
-        
-        if (bounds.length === 1) {
-          map.setView(bounds[0], 12);
-        } else if (bounds.length > 1) {
-          const latlngs = bounds.map(([lat, lng]) => L.latLng(lat, lng));
+      if (validCoords.length > 0) {
+        if (validCoords.length === 1) {
+          const { lat, lng } = validCoords[0];
+          map.setView([lat, lng], 12, { animate: false });
+        } else if (validCoords.length > 1) {
+          const latlngs = validCoords.map(({ lat, lng }) => L.latLng(lat, lng));
           const boundsObj = L.latLngBounds(latlngs);
-          map.fitBounds(boundsObj as any, { padding: [50, 50], maxZoom: 12 });
+          map.fitBounds(boundsObj as any, { 
+            padding: [80, 80], 
+            maxZoom: 13,
+            animate: false
+          });
         }
         hasZoomedRef.current = true;
       }
     }
-  }, [selectedAnnouncement, announcements, map]);
+  }, [selectedAnnouncement, announcements, shouldFitBounds, map]);
 
   return null;
 }
@@ -78,7 +84,9 @@ export default function MapWithList() {
   const [search, setSearch] = useState<string | undefined>();
   const [categoryId, setCategoryId] = useState<number | undefined>();
   const [communeIds, setCommuneIds] = useState<number[]>([]);
-  const [dateRange, setDateRange] = useState<any>();
+  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [shouldFitBounds, setShouldFitBounds] = useState(true);
 
   // Charger les données initiales
   useEffect(() => {
@@ -136,24 +144,45 @@ export default function MapWithList() {
   const filteredAnnouncements = useMemo(() => {
     let filtered = [...announcements];
 
-    // Filtre par recherche
+    console.log('[MapWithList] Filtrage avec:', {
+      total: announcements.length,
+      search,
+      categoryId,
+      communeIds: communeIds.length,
+      statusFilter,
+      dateRange: dateRange ? [dateRange[0]?.format('DD/MM/YYYY'), dateRange[1]?.format('DD/MM/YYYY')] : null
+    });
+
+    // Filtre par recherche (titre, description, commune, catégorie)
     if (search) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter(
-        (a) =>
-          a.titre?.toLowerCase().includes(searchLower) ||
-          a.description?.toLowerCase().includes(searchLower)
-      );
+      const searchLower = search.toLowerCase().trim();
+      filtered = filtered.filter((a) => {
+        const titreMatch = a.titre?.toLowerCase().includes(searchLower);
+        const descMatch = a.description?.toLowerCase().includes(searchLower);
+        const communeMatch = a.commune?.nomCommune?.toLowerCase().includes(searchLower);
+        const categorieMatch = a.categorie?.nom?.toLowerCase().includes(searchLower) || 
+                              (a.categorie as any)?.name?.toLowerCase().includes(searchLower);
+        return titreMatch || descMatch || communeMatch || categorieMatch;
+      });
+      console.log('[MapWithList] Après filtre recherche:', filtered.length);
     }
 
     // Filtre par catégorie
     if (categoryId) {
       filtered = filtered.filter((a) => a.categorie?.id === categoryId);
+      console.log('[MapWithList] Après filtre catégorie:', filtered.length);
     }
 
     // Filtre par communes
     if (communeIds.length > 0) {
       filtered = filtered.filter((a) => a.commune && communeIds.includes(a.commune.gid));
+      console.log('[MapWithList] Après filtre communes:', filtered.length);
+    }
+
+    // Filtre par statut
+    if (statusFilter) {
+      filtered = filtered.filter((a) => a.status === statusFilter);
+      console.log('[MapWithList] Après filtre statut:', filtered.length);
     }
 
     // Filtre par date
@@ -166,24 +195,72 @@ export default function MapWithList() {
           const annonceDate = new Date(a.date);
           return annonceDate >= startDate && annonceDate <= endDate;
         });
+        console.log('[MapWithList] Après filtre date:', filtered.length);
       } catch (error) {
         console.error('[MapWithList] Erreur filtre date:', error);
       }
     }
 
+    // Filtrer les annonces avec coordonnées valides
+    filtered = filtered.filter(a => {
+      const coords = extractCoordinates(a);
+      return coords !== null;
+    });
+
+    console.log('[MapWithList] Résultat final:', filtered.length, 'annonces');
     return filtered;
-  }, [announcements, search, categoryId, communeIds, dateRange]);
+  }, [announcements, search, categoryId, communeIds, statusFilter, dateRange]);
+
+  // Préparer les annonces avec offsets pour éviter la superposition
+  const announcementsWithOffsets = useMemo(() => {
+    return prepareAnnouncementsWithOffsets(filteredAnnouncements);
+  }, [filteredAnnouncements]);
+
+  // Recalculer les bounds quand les filtres changent
+  useEffect(() => {
+    if (filteredAnnouncements.length > 0) {
+      setShouldFitBounds(true);
+      // Reset après un délai pour permettre le recalcul
+      setTimeout(() => setShouldFitBounds(false), 100);
+    }
+  }, [filteredAnnouncements.length, categoryId, communeIds.length, statusFilter]);
 
   // Gérer le clic sur une ligne de la liste → zoom sur la carte
   const handleRowClick = (announcement: Annonce) => {
     setSelectedAnnouncementId(announcement.id);
     setHighlightedMarkerId(announcement.id);
+    // Faire défiler la ligne dans la vue
+    setTimeout(() => {
+      const rowElement = document.querySelector(`[data-row-id="${announcement.id}"]`);
+      if (rowElement) {
+        rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 300);
   };
 
   // Gérer le clic sur un marqueur de la carte → highlight dans la liste
   const handleMarkerClick = (announcementId: number) => {
     setHighlightedMarkerId(announcementId);
     setSelectedAnnouncementId(announcementId);
+    // Faire défiler la ligne correspondante dans la liste
+    setTimeout(() => {
+      const rowElement = document.querySelector(`[data-row-id="${announcementId}"]`);
+      if (rowElement) {
+        rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 300);
+  };
+
+  // Réinitialiser les filtres
+  const handleResetFilters = () => {
+    setSearch(undefined);
+    setCategoryId(undefined);
+    setCommuneIds([]);
+    setDateRange(null);
+    setStatusFilter(undefined);
+    setSelectedAnnouncementId(null);
+    setHighlightedMarkerId(null);
+    message.info('Filtres réinitialisés');
   };
 
   const selectedAnnouncement = filteredAnnouncements.find(a => a.id === selectedAnnouncementId) || null;
@@ -193,17 +270,19 @@ export default function MapWithList() {
       'approuvée': 'green',
       'déclarée': 'orange',
       'rejetée': 'red',
-      'annulée': 'default'
+      'annulée': 'default',
+      'modifiée': 'orange'
     };
     return colors[status] || 'default';
   };
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
-      'approuvée': 'Approuvée',
-      'déclarée': 'En attente',
-      'rejetée': 'Rejetée',
-      'annulée': 'Annulée'
+      'approuvée': '✅ Approuvée',
+      'déclarée': '⏳ En attente',
+      'rejetée': '❌ Rejetée',
+      'annulée': '🗑️ Annulée',
+      'modifiée': '✏️ Modifiée'
     };
     return labels[status] || status;
   };
@@ -214,11 +293,20 @@ export default function MapWithList() {
     [35.8, -1.1]
   );
 
-  const validAnnouncements = filteredAnnouncements.filter(a => {
-    if (!a.geom || !a.geom.coordinates) return false;
-    const [lng, lat] = a.geom.coordinates;
-    return lat && lng;
-  });
+  // Statistiques pour affichage
+  const stats = useMemo(() => {
+    const total = filteredAnnouncements.length;
+    const byStatus = filteredAnnouncements.reduce((acc, a) => {
+      acc[a.status] = (acc[a.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const byCategory = filteredAnnouncements.reduce((acc, a) => {
+      const catName = a.categorie?.nom || (a.categorie as any)?.name || 'Non spécifiée';
+      acc[catName] = (acc[catName] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return { total, byStatus, byCategory };
+  }, [filteredAnnouncements]);
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
@@ -253,47 +341,59 @@ export default function MapWithList() {
             url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
           />
           
-          <MapController selectedAnnouncement={selectedAnnouncement} announcements={validAnnouncements} />
+          <MapController 
+            selectedAnnouncement={selectedAnnouncement} 
+            announcements={filteredAnnouncements}
+            shouldFitBounds={shouldFitBounds}
+          />
           
-          {validAnnouncements.map((announcement) => {
-            const [lng, lat] = announcement.geom!.coordinates;
+          {announcementsWithOffsets.map(({ announcement, position, offsetIndex, totalAtLocation }) => {
             const isHighlighted = highlightedMarkerId === announcement.id;
+            const categoryName = announcement.categorie?.nom || (announcement.categorie as any)?.name;
             
-            // Icône personnalisée pour le marqueur highlighté
-            const icon = isHighlighted 
-              ? new L.Icon({
-                  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-                  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-                  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-                  iconSize: [35, 51],
-                  iconAnchor: [17, 51],
-                  popupAnchor: [1, -34],
-                  shadowSize: [51, 51],
-                  className: 'highlighted-marker'
-                })
-              : defaultIcon;
+            // Créer une icône colorée par catégorie
+            const icon = createCategoryIcon(categoryName, isHighlighted);
+            
+            // Badge si plusieurs markers au même endroit
+            const hasMultipleAtLocation = totalAtLocation > 1;
             
             return (
               <Marker
                 key={announcement.id}
-                position={[lat, lng]}
+                position={position}
                 icon={icon}
                 eventHandlers={{
-                  click: () => handleMarkerClick(announcement.id)
+                  click: () => handleMarkerClick(announcement.id),
+                  mouseover: () => {
+                    // Highlight léger au survol
+                    setHighlightedMarkerId(announcement.id);
+                  }
                 }}
               >
-                <Popup>
+                <Popup maxWidth={280}>
                   <div style={{ minWidth: 200 }}>
-                    <Text strong style={{ fontSize: 16 }}>
+                    {hasMultipleAtLocation && (
+                      <Badge 
+                        count={totalAtLocation} 
+                        style={{ 
+                          position: 'absolute', 
+                          top: -8, 
+                          right: -8,
+                          zIndex: 1000
+                        }}
+                        title={`${totalAtLocation} annonce(s) à cet emplacement`}
+                      />
+                    )}
+                    <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 8 }}>
                       {announcement.titre || 'Annonce de don'}
                     </Text>
                     <div style={{ marginTop: 8, marginBottom: 8 }}>
                       <Tag color={getStatusColor(announcement.status)}>
                         {getStatusLabel(announcement.status)}
                       </Tag>
-                      {announcement.categorie && (
+                      {categoryName && (
                         <Tag color="green" style={{ marginLeft: 4 }}>
-                          {announcement.categorie.nom}
+                          {categoryName}
                         </Tag>
                       )}
                     </div>
@@ -305,6 +405,13 @@ export default function MapWithList() {
                       <div style={{ marginBottom: 4 }}>
                         <Text type="secondary">Commune: </Text>
                         <Text strong>{announcement.commune.nomCommune}</Text>
+                      </div>
+                    )}
+                    {hasMultipleAtLocation && (
+                      <div style={{ marginBottom: 4, padding: 4, background: '#fffbe6', borderRadius: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          ⚠️ {totalAtLocation} annonce(s) au même endroit (marker #{offsetIndex + 1})
+                        </Text>
                       </div>
                     )}
                     {announcement.description && (
@@ -332,41 +439,66 @@ export default function MapWithList() {
         <Card 
           size="small" 
           title={
-            <div>
-              <EnvironmentOutlined style={{ marginRight: 8 }} />
-              Filtres
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <FilterOutlined style={{ marginRight: 8 }} />
+                Filtres
+              </div>
+              {(search || categoryId || communeIds.length > 0 || statusFilter || dateRange) && (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ClearOutlined />}
+                  onClick={handleResetFilters}
+                  title="Réinitialiser les filtres"
+                />
+              )}
             </div>
           }
           style={{ borderBottom: '1px solid #f0f0f0' }}
+          extra={
+            <Badge count={filteredAnnouncements.length} showZero style={{ backgroundColor: '#52c41a' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>Résultats</Text>
+            </Badge>
+          }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Input
-              placeholder="Recherche (titre, description)"
+              placeholder="Recherche (titre, description, commune, catégorie)"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value || undefined)}
               allowClear
+              prefix={<FilterOutlined />}
             />
             <Select
               allowClear
               placeholder="Catégorie"
               value={categoryId}
-              onChange={setCategoryId}
+              onChange={(value) => setCategoryId(value || undefined)}
               options={categories.map((cat) => ({
-                label: cat.nom,
+                label: cat.nom || (cat as any).name || 'Non spécifiée',
                 value: cat.id,
               }))}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
               notFoundContent={
                 categories.length === 0 ? (
-                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#ff4d4f' }}>
-                    Aucune catégorie disponible
+                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#ff4d4f', fontSize: 12 }}>
+                    ⚠️ Aucune catégorie disponible
                   </div>
-                ) : null
+                ) : (
+                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#999', fontSize: 12 }}>
+                    Aucun résultat
+                  </div>
+                )
               }
             />
             <Select
               mode="multiple"
               allowClear
-              placeholder="Communes"
+              placeholder="Communes (recherche possible)"
               value={communeIds}
               onChange={setCommuneIds}
               options={communes.map((comm) => ({
@@ -377,19 +509,38 @@ export default function MapWithList() {
               filterOption={(input, option) =>
                 (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
+              maxTagCount="responsive"
               notFoundContent={
                 communes.length === 0 ? (
-                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#ff4d4f' }}>
-                    Aucune commune disponible
+                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#ff4d4f', fontSize: 12 }}>
+                    ⚠️ Aucune commune disponible
                   </div>
-                ) : null
+                ) : (
+                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#999', fontSize: 12 }}>
+                    Aucun résultat
+                  </div>
+                )
               }
+            />
+            <Select
+              allowClear
+              placeholder="Statut"
+              value={statusFilter}
+              onChange={(value) => setStatusFilter(value || undefined)}
+              options={[
+                { label: '✅ Approuvée', value: 'approuvée' },
+                { label: '⏳ En attente', value: 'déclarée' },
+                { label: '✏️ Modifiée', value: 'modifiée' },
+                { label: '❌ Rejetée', value: 'rejetée' },
+                { label: '🗑️ Annulée', value: 'annulée' }
+              ]}
             />
             <DatePicker.RangePicker
               style={{ width: '100%' }}
               value={dateRange}
-              onChange={setDateRange}
+              onChange={(dates) => setDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
               format="DD/MM/YYYY"
+              placeholder={['Date début', 'Date fin']}
             />
           </div>
         </Card>
@@ -411,53 +562,72 @@ export default function MapWithList() {
               rowKey="id"
               loading={loading}
               dataSource={filteredAnnouncements}
-              pagination={{ pageSize: 10, size: 'small' }}
+              pagination={{ 
+                pageSize: 10, 
+                size: 'small',
+                showSizeChanger: true,
+                showTotal: (total) => `${total} annonce(s)`
+              }}
               size="small"
+              scroll={{ y: 'calc(100vh - 300px)' }}
               onRow={(record) => ({
                 onClick: () => handleRowClick(record),
+                'data-row-id': record.id,
                 style: {
                   cursor: 'pointer',
                   backgroundColor: highlightedMarkerId === record.id ? '#e6f7ff' : 'transparent',
-                  transition: 'background-color 0.3s'
+                  transition: 'background-color 0.3s',
+                  borderLeft: highlightedMarkerId === record.id ? '3px solid #1890ff' : 'none'
                 }
               })}
               columns={[
                 { 
                   title: 'Titre', 
                   dataIndex: 'titre',
-                  ellipsis: true,
-                  render: (text) => <Text strong>{text || 'Sans titre'}</Text>
+                  ellipsis: { showTitle: true },
+                  render: (text, record) => (
+                    <div>
+                      <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                        {text || 'Sans titre'}
+                      </Text>
+                      <Tag color={getStatusColor(record.status)} style={{ fontSize: 11 }}>
+                        {getStatusLabel(record.status)}
+                      </Tag>
+                    </div>
+                  )
                 },
                 {
                   title: 'Catégorie',
                   dataIndex: ['categorie', 'nom'],
-                  render: (nom) => nom ? <Tag color="green">{nom}</Tag> : '-'
+                  width: 120,
+                  render: (nom, record) => {
+                    const catName = nom || (record.categorie as any)?.name || 'Non spécifiée';
+                    return <Tag color="green">{catName}</Tag>;
+                  }
                 },
                 { 
                   title: 'Quantité', 
                   dataIndex: 'quatite',
                   width: 80,
-                  render: (q) => q || 0
+                  align: 'center' as const,
+                  render: (q) => <Text strong>{q || 0}</Text>
                 },
                 {
                   title: 'Commune',
                   dataIndex: ['commune', 'nomCommune'],
-                  ellipsis: true,
-                  render: (nom) => nom || '-'
+                  ellipsis: { showTitle: true },
+                  render: (nom) => nom ? <Text>{nom}</Text> : '-'
                 },
                 {
                   title: 'Date',
                   dataIndex: 'date',
                   width: 100,
-                  render: (date: string) => date ? new Date(date).toLocaleDateString('fr-FR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric'
-                  }) : '-'
+                  render: (date: string) => date ? dayjs(date).format('DD/MM/YYYY') : '-'
                 },
                 {
                   title: 'Action',
                   width: 140,
+                  fixed: 'right' as const,
                   render: (_: any, record: Annonce) => (
                     <RequestButton annonce={record} />
                   )

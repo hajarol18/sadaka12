@@ -49,9 +49,12 @@ export async function getDemandesByAnnonce(annonceId: number): Promise<Demande[]
 
 /**
  * Crée une nouvelle demande
+ * Note: Selon le cahier des charges, un utilisateur peut être donateur ET bénéficiaire
+ * MAIS il ne peut pas faire de demande sur sa propre annonce
  */
 export async function createDemande(annonceId: number, userId: number): Promise<boolean> {
   try {
+    console.log('[createDemande] Création demande: annonceId=' + annonceId + ', userId=' + userId);
     const params = new URLSearchParams();
     params.append('id_annonce', annonceId.toString());
     params.append('id_user', userId.toString());
@@ -62,9 +65,26 @@ export async function createDemande(annonceId: number, userId: number): Promise<
       },
     });
     
-    return response.status === 200 || response.data === 1;
+    // Le backend retourne maintenant un objet JSON avec {success: true/false, message: "..."}
+    const success = response.status === 200 && (response.data?.success === true || response.data === 1 || response.data === true);
+    if (success) {
+      console.log('[createDemande] Demande créée avec succès');
+      return true;
+    } else {
+      const errorMsg = response.data?.message || 'Échec de la création de la demande';
+      console.warn('[createDemande] Réponse inattendue:', response.data);
+      throw new Error(errorMsg);
+    }
   } catch (error: any) {
     console.error('[createDemande] Erreur:', error);
+    // Si l'erreur est du backend (400 Bad Request)
+    if (error?.response?.status === 400 && error?.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    }
+    // Si l'erreur est "vous ne pouvez pas faire de demande sur votre propre annonce"
+    if (error?.response?.data?.message?.includes('propre annonce')) {
+      throw new Error('Vous ne pouvez pas faire de demande sur votre propre annonce');
+    }
     throw error;
   }
 }
@@ -81,6 +101,7 @@ export async function deleteDemande(demandeId: number): Promise<void> {
  */
 export async function hasRecentDemande(annonceId: number, userId: number): Promise<boolean> {
   try {
+    console.log('[hasRecentDemande] Vérification demande récente: annonceId=' + annonceId + ', userId=' + userId);
     const demandes = await getDemandesByUser(userId);
     
     // S'assurer que demandes est un tableau
@@ -89,13 +110,26 @@ export async function hasRecentDemande(annonceId: number, userId: number): Promi
       return false;
     }
     
+    console.log('[hasRecentDemande] Nombre total de demandes pour l\'utilisateur:', demandes.length);
+    
     // Filtrer les demandes pour cette annonce
     const demandesPourAnnonce = demandes.filter((d: any) => {
-      const annonceIdFromDemande = d.annonce?.id || d.annonce_id || d.annonceId;
-      return annonceIdFromDemande === annonceId;
+      const annonceIdFromDemande = d.annonce?.id || d.annonce_id || d.annonceId || (d.annonce && typeof d.annonce === 'object' ? d.annonce.id : null);
+      const matches = annonceIdFromDemande === annonceId || annonceIdFromDemande?.toString() === annonceId.toString();
+      if (matches) {
+        console.log('[hasRecentDemande] Demande trouvée pour cette annonce:', {
+          demandeId: d.id,
+          annonceId: annonceIdFromDemande,
+          date: d.date
+        });
+      }
+      return matches;
     });
     
+    console.log('[hasRecentDemande] Nombre de demandes pour cette annonce:', demandesPourAnnonce.length);
+    
     if (!Array.isArray(demandesPourAnnonce) || demandesPourAnnonce.length === 0) {
+      console.log('[hasRecentDemande] Aucune demande trouvée pour cette annonce');
       return false;
     }
     
@@ -106,18 +140,65 @@ export async function hasRecentDemande(annonceId: number, userId: number): Promi
     const hasRecent = demandesPourAnnonce.some((d: any) => {
       if (!d.date) {
         // Si pas de date, considérer comme récent (pour sécurité)
+        console.warn('[hasRecentDemande] Demande sans date, considérée comme récente:', d.id);
         return true;
       }
       
       const demandeDate = new Date(d.date);
-      return demandeDate >= thirtyDaysAgo;
+      const isRecent = demandeDate >= thirtyDaysAgo;
+      
+      if (isRecent) {
+        console.log('[hasRecentDemande] Demande récente trouvée (moins de 30 jours):', {
+          demandeId: d.id,
+          date: d.date,
+          daysAgo: Math.floor((new Date().getTime() - demandeDate.getTime()) / (1000 * 60 * 60 * 24))
+        });
+      }
+      
+      return isRecent;
     });
     
+    console.log('[hasRecentDemande] Résultat:', hasRecent);
     return hasRecent;
   } catch (error: any) {
     console.error('[hasRecentDemande] Erreur:', error);
     // En cas d'erreur, retourner true pour bloquer (sécurité)
     return true;
+  }
+}
+
+/**
+ * Assigner une quantité à une demande (par le donateur)
+ * @param demandeId ID de la demande
+ * @param quantite Quantité à assigner
+ * @param donnateurId ID du donateur (pour vérification)
+ */
+export async function assignDemande(demandeId: number, quantite: number, donnateurId: number): Promise<boolean> {
+  try {
+    console.log('[assignDemande] Assignation: demandeId=' + demandeId + ', quantite=' + quantite + ', donnateurId=' + donnateurId);
+    const params = new URLSearchParams();
+    params.append('quantite', quantite.toString());
+    params.append('donnateur_id', donnateurId.toString());
+    
+    const response = await api.put(`${BASE_URL}/demande/${demandeId}/assign`, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+    
+    const success = response.status === 200 && response.data?.success === true;
+    if (success) {
+      console.log('[assignDemande] ✅ Quantité assignée avec succès');
+    } else {
+      console.warn('[assignDemande] Réponse inattendue:', response.data);
+    }
+    return success;
+  } catch (error: any) {
+    console.error('[assignDemande] Erreur:', error);
+    if (error?.response?.status === 400 && error?.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    }
+    throw error;
   }
 }
 

@@ -28,12 +28,16 @@ export default function AppLayout() {
     });
   }
   
-  // L'admin peut aussi créer des annonces (selon le cahier des charges)
-  // Donc on garde "Mes annonces" et "Créer" pour l'admin aussi
+  // Menu différent pour admin et utilisateurs normaux
+  // Admin : pas besoin de "Mes annonces" et "Créer" car il gère tout via le panel admin
+  // Utilisateurs : voient "Mes annonces" et "Créer"
   const navItems = [
     ...baseItems,
-    ...(isAuthenticated ? [{ key: '/my-announcements', icon: <SettingOutlined />, label: <Link to="/my-announcements">Mes annonces</Link> }] : []),
-    ...(isAuthenticated ? [{ key: '/create-announcement', icon: <SettingOutlined />, label: <Link to="/create-announcement">Créer</Link> }] : []),
+    // "Mes annonces" et "Créer" uniquement pour les utilisateurs non-admin
+    ...(isAuthenticated && !isAdmin && user?.role !== UserRole.ADMIN ? [
+      { key: '/my-announcements', icon: <SettingOutlined />, label: <Link to="/my-announcements">Mes annonces</Link> },
+      { key: '/create-announcement', icon: <SettingOutlined />, label: <Link to="/create-announcement">Créer</Link> }
+    ] : []),
     // Admin en dernier pour qu'il soit visible à droite
     ...(isAdmin || user?.role === UserRole.ADMIN ? [{ key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Admin</Link> }] : [])
   ];

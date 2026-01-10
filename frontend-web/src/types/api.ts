@@ -27,7 +27,8 @@ export interface Commune {
 
 export interface Category {
   id: number;
-  nom: string;
+  nom?: string; // Peut être 'nom' ou 'name' selon la sérialisation Jackson
+  name?: string; // Jackson sérialise getName() comme 'name'
   famille: number;
 }
 
@@ -59,4 +60,13 @@ export interface Annonce_Fcategorie {
   nbr_annonce: number;
 }
 
+export interface Demande {
+  id: number;
+  annonce?: Annonce;
+  demandeur?: Utilisateur;
+  date?: string; // Date de la demande
+  status?: 'PENDING' | 'APPROVED' | 'REJECTED'; // Statut de la demande
+  quantiteAssignee?: number; // Quantité assignée par le donateur
+  requestedQuantity?: number; // Quantité demandée (pour compatibilité frontend)
+}
 

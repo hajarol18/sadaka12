@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card, Col, Row, Select, Input, DatePicker, Slider, Space, Typography } from 'antd';
+import { Card, Col, Row, Select, Input, DatePicker, Space, Typography } from 'antd';
 import MapView from '../components/MapView';
 import { getAnnonces } from '../services/annonceService';
 import { getCategories } from '../services/categoryService';
@@ -19,7 +19,6 @@ export default function MapPage() {
   const [categoryId, setCategoryId] = useState<number | undefined>();
   const [communeIds, setCommuneIds] = useState<number[]>([]);
   const [dateRange, setDateRange] = useState<any>();
-  const [distanceKm, setDistanceKm] = useState<number>(0);
 
   // Charger les données initiales
   useEffect(() => {
@@ -78,7 +77,7 @@ export default function MapPage() {
     }
 
     return filtered;
-  }, [announcements, search, categoryId, communeIds, dateRange, distanceKm]);
+  }, [announcements, search, categoryId, communeIds, dateRange]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -132,20 +131,6 @@ export default function MapPage() {
                 onChange={setDateRange}
                 format="DD/MM/YYYY"
               />
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <span>Distance: {distanceKm} km (À implémenter)</span>
-                <Slider
-                  min={0}
-                  max={50}
-                  step={5}
-                  value={distanceKm}
-                  onChange={setDistanceKm}
-                  tooltip={{ formatter: (value) => `${value} km` }}
-                  disabled
-                />
-              </Space>
             </Col>
           </Row>
         </Card>

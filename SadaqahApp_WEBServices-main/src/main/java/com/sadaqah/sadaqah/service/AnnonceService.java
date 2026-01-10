@@ -44,6 +44,11 @@ public class AnnonceService {
 	        return  annonceRepo.findAnnonces_en_cours_traitement();
 	    }
 	
+	//toutes les annonces (tous statuts) - vue admin
+	public List<Annonce> findAllAnnonces() {
+		return annonceRepo.findAll();
+	}
+	
 	//toutes les annonces pour filtre
 	public List<Annonce_Perso> findAnnoncesForFilter() {
 		

@@ -1,5 +1,6 @@
 package com.sadaqah.sadaqah.controller;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,7 +34,22 @@ public class CategoryController {
 	//retourne la liste de toutes les categories
 	@GetMapping("/categories")
 	public Iterable<Category> getCategories() {
-        return categoryService.getCategories();
+		try {
+			System.out.println("[CategoryController] /categories appelé");
+			Iterable<Category> result = categoryService.getCategories();
+			System.out.println("[CategoryController] /categories: résultat obtenu");
+			if (result == null) {
+				System.err.println("[CategoryController] ERREUR: result est null!");
+				return new ArrayList<Category>();
+			}
+			return result;
+		} catch (Exception e) {
+			System.err.println("[CategoryController] ERREUR dans /categories: " + e.getMessage());
+			System.err.println("[CategoryController] Type d'erreur: " + e.getClass().getName());
+			e.printStackTrace();
+			// Retourner une liste vide au lieu de lancer l'exception pour éviter 500
+			return new ArrayList<Category>();
+		}
 	}
 	//retourne la liste de toutes les categories d'une famille 
 	@GetMapping("/categories/{famille}")

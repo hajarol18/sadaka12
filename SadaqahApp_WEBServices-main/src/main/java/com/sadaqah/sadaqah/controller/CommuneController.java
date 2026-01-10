@@ -22,7 +22,21 @@ public class CommuneController {
 
     @GetMapping("/communes")
     public List<Commune> getCommunes() {
-        // Cette méthode doit exister dans votre CommuneService
-        return communeService.getCommunes();
+        try {
+        	System.out.println("[CommuneController] /communes appelé");
+        	List<Commune> result = communeService.getCommunes();
+        	System.out.println("[CommuneController] /communes: " + (result != null ? result.size() : "null") + " communes");
+        	if (result == null) {
+        		System.err.println("[CommuneController] ERREUR: result est null!");
+        		return new java.util.ArrayList<Commune>();
+        	}
+        	return result;
+        } catch (Exception e) {
+        	System.err.println("[CommuneController] ERREUR dans /communes: " + e.getMessage());
+        	System.err.println("[CommuneController] Type d'erreur: " + e.getClass().getName());
+        	e.printStackTrace();
+        	// Retourner une liste vide au lieu de lancer l'exception pour éviter 500
+        	return new java.util.ArrayList<Commune>();
+        }
     }
 }

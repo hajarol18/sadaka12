@@ -11,12 +11,13 @@ interface RequestButtonProps {
 }
 
 export default function RequestButton({ annonce, onSuccess }: RequestButtonProps) {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [hasRecent, setHasRecent] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [isOwner, setIsOwner] = useState(false);
 
-  // Vérifier si l'utilisateur a déjà fait une demande récente
+  // Vérifier si l'utilisateur a déjà fait une demande récente ET si c'est le donateur
   useEffect(() => {
     const checkRecentDemande = async () => {
       if (!isAuthenticated || !user?.id || !annonce?.id) {
@@ -30,6 +31,29 @@ export default function RequestButton({ annonce, onSuccess }: RequestButtonProps
           setChecking(false);
           return;
         }
+
+        // IMPORTANT: Les admins ne peuvent pas faire de demandes d'intérêt
+        // Selon le cahier des charges, l'admin a un rôle spécifique (validation des annonces)
+        // et ne doit pas participer comme utilisateur normal
+        if (isAdmin || user?.role === 'ADMIN') {
+          setHasRecent(true); // Bloquer pour admin
+          setChecking(false);
+          return;
+        }
+
+        // Vérifier si l'utilisateur est le donateur de cette annonce
+        const donnateurId = annonce.donnateur?.id || (annonce.donnateur as any)?.id || null;
+        const isOwnerCheck = donnateurId !== null && (donnateurId === userId || donnateurId.toString() === user.id);
+        setIsOwner(isOwnerCheck);
+
+        // Si c'est le donateur, on bloque directement
+        if (isOwnerCheck) {
+          setHasRecent(true);
+          setChecking(false);
+          return;
+        }
+
+        // Sinon, vérifier si une demande récente existe
         const recent = await hasRecentDemande(annonce.id, userId);
         setHasRecent(recent);
       } catch (error: any) {
@@ -42,7 +66,7 @@ export default function RequestButton({ annonce, onSuccess }: RequestButtonProps
     };
 
     checkRecentDemande();
-  }, [isAuthenticated, user?.id, annonce?.id]);
+  }, [isAuthenticated, user?.id, annonce?.id, annonce?.donnateur]);
 
   const handleRequest = async () => {
     if (!isAuthenticated) {
@@ -53,6 +77,11 @@ export default function RequestButton({ annonce, onSuccess }: RequestButtonProps
     const userId = user.id ? parseInt(user.id) : 0;
     if (userId === 0) {
       message.error('Erreur: utilisateur non identifié');
+      return;
+    }
+
+    if (isOwner) {
+      message.warning('Vous ne pouvez pas faire de demande sur votre propre annonce');
       return;
     }
 
@@ -71,7 +100,8 @@ export default function RequestButton({ annonce, onSuccess }: RequestButtonProps
       }
     } catch (error: any) {
       console.error('[RequestButton] Erreur création demande:', error);
-      message.error(error?.response?.data?.message || 'Erreur lors de l\'envoi de la demande');
+      const errorMessage = error?.message || error?.response?.data?.message || 'Erreur lors de l\'envoi de la demande';
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -100,6 +130,37 @@ export default function RequestButton({ annonce, onSuccess }: RequestButtonProps
       >
         Vérification...
       </Button>
+    );
+  }
+
+  // Blocage pour admin
+  if (isAdmin || user?.role === 'ADMIN') {
+    return (
+      <Tooltip title="Les administrateurs ne peuvent pas faire de demandes. Ils gèrent les annonces via le panel admin.">
+        <Button 
+          icon={<ClockCircleOutlined />} 
+          disabled
+          size="small"
+          style={{ cursor: 'not-allowed' }}
+        >
+          Admin
+        </Button>
+      </Tooltip>
+    );
+  }
+
+  if (isOwner) {
+    return (
+      <Tooltip title="Vous ne pouvez pas faire de demande sur votre propre annonce">
+        <Button 
+          icon={<ClockCircleOutlined />} 
+          disabled
+          size="small"
+          style={{ cursor: 'not-allowed' }}
+        >
+          Votre annonce
+        </Button>
+      </Tooltip>
     );
   }
 
