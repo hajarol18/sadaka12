@@ -23,14 +23,32 @@ const { Title, Text, Paragraph } = Typography;
 function MapController({ 
   selectedAnnouncement, 
   announcements, 
-  shouldFitBounds 
+  shouldFitBounds,
+  onZoomChange
 }: { 
   selectedAnnouncement: Annonce | null; 
   announcements: Annonce[]; 
   shouldFitBounds: boolean;
+  onZoomChange: (zoom: number) => void;
 }) {
   const map = useMap();
   const hasZoomedRef = useRef(false);
+
+  useEffect(() => {
+    // Suivre le niveau de zoom actuel
+    const updateZoom = () => {
+      onZoomChange(map.getZoom());
+    };
+    
+    map.on('zoomend', updateZoom);
+    map.on('zoom', updateZoom);
+    updateZoom(); // Initial
+    
+    return () => {
+      map.off('zoomend', updateZoom);
+      map.off('zoom', updateZoom);
+    };
+  }, [map, onZoomChange]);
 
   useEffect(() => {
     // Si une annonce est sélectionnée, zoomer dessus
@@ -79,6 +97,8 @@ export default function MapWithList() {
   // État pour la synchronisation
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<number | null>(null);
   const [highlightedMarkerId, setHighlightedMarkerId] = useState<number | null>(null);
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<number | null>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(6);
   
   // Filtres communs (affectent carte ET liste)
   const [search, setSearch] = useState<string | undefined>();
@@ -212,9 +232,11 @@ export default function MapWithList() {
   }, [announcements, search, categoryId, communeIds, statusFilter, dateRange]);
 
   // Préparer les annonces avec offsets pour éviter la superposition
+  // Utilise le zoom actuel pour décider d'afficher plusieurs markers selon la quantité
+  // Seuil réduit à 10 pour afficher les markers multiples plus tôt
   const announcementsWithOffsets = useMemo(() => {
-    return prepareAnnouncementsWithOffsets(filteredAnnouncements);
-  }, [filteredAnnouncements]);
+    return prepareAnnouncementsWithOffsets(filteredAnnouncements, currentZoom, 10);
+  }, [filteredAnnouncements, currentZoom]);
 
   // Recalculer les bounds quand les filtres changent
   useEffect(() => {
@@ -345,28 +367,37 @@ export default function MapWithList() {
             selectedAnnouncement={selectedAnnouncement} 
             announcements={filteredAnnouncements}
             shouldFitBounds={shouldFitBounds}
+            onZoomChange={setCurrentZoom}
           />
           
-          {announcementsWithOffsets.map(({ announcement, position, offsetIndex, totalAtLocation }) => {
+          {announcementsWithOffsets.map(({ announcement, position, offsetIndex, totalAtLocation, quantityIndex, totalQuantity }) => {
             const isHighlighted = highlightedMarkerId === announcement.id;
+            const isHovered = hoveredMarkerId === announcement.id;
             const categoryName = announcement.categorie?.nom || (announcement.categorie as any)?.name;
             
-            // Créer une icône colorée par catégorie
-            const icon = createCategoryIcon(categoryName, isHighlighted);
+            // Créer une icône colorée par catégorie avec état hover
+            // UN SEUL MARKER par annonce, même si quantité > 1
+            const markerKey = announcement.id.toString();
+            const icon = createCategoryIcon(categoryName, isHighlighted, isHovered, 0, totalQuantity);
             
             // Badge si plusieurs markers au même endroit
             const hasMultipleAtLocation = totalAtLocation > 1;
             
             return (
               <Marker
-                key={announcement.id}
+                key={markerKey}
                 position={position}
                 icon={icon}
                 eventHandlers={{
                   click: () => handleMarkerClick(announcement.id),
                   mouseover: () => {
-                    // Highlight léger au survol
+                    // Highlight et hover au survol
                     setHighlightedMarkerId(announcement.id);
+                    setHoveredMarkerId(announcement.id);
+                  },
+                  mouseout: () => {
+                    // Retirer le hover mais garder le highlight si c'est la sélection
+                    setHoveredMarkerId(null);
                   }
                 }}
               >

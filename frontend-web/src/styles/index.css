@@ -32,3 +32,51 @@ body {
   background-color: #389e0d;
   border-color: #389e0d;
 }
+
+/* Styles pour les markers de la carte */
+.custom-marker {
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.custom-marker .marker-container {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.custom-marker.hovered .marker-container {
+  transform: rotate(-45deg) scale(1.15) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+  z-index: 1000;
+}
+
+.custom-marker.highlighted .marker-container {
+  transform: rotate(-45deg) scale(1.2);
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.5);
+  border-color: #1890ff !important;
+  z-index: 1001;
+}
+
+.custom-marker.highlighted.hovered .marker-container {
+  transform: rotate(-45deg) scale(1.25) !important;
+  box-shadow: 0 6px 20px rgba(24, 144, 255, 0.6) !important;
+}
+
+.custom-marker.multiple .marker-container {
+  opacity: 0.9;
+}
+
+.custom-marker.multiple:hover .marker-container {
+  opacity: 1;
+}
+
+/* Animation au survol */
+.custom-marker .marker-container:hover {
+  transform: rotate(-45deg) scale(1.1);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+}
+
+/* Badge de quantité sur le marker */
+.custom-marker .marker-container > div:last-child {
+  pointer-events: none;
+}

@@ -57,12 +57,19 @@ export function groupByCoordinates(announcements: Annonce[]): Map<string, Annonc
 /**
  * Prépare les annonces avec leurs offsets calculés pour éviter la superposition
  * IMPORTANT: Utilise extractCoordinates() pour obtenir les bonnes coordonnées
+ * Si la quantité > 1, génère plusieurs markers (un par unité)
  */
-export function prepareAnnouncementsWithOffsets(announcements: Annonce[]): Array<{
+export function prepareAnnouncementsWithOffsets(
+  announcements: Annonce[], 
+  currentZoom?: number,
+  minZoomForMultipleMarkers: number = 10
+): Array<{
   announcement: Annonce;
   position: [number, number];
   offsetIndex: number;
   totalAtLocation: number;
+  quantityIndex: number; // Toujours 0 maintenant (1 marker = 1 annonce)
+  totalQuantity: number; // Quantité totale de l'annonce (pour affichage dans le badge)
 }> {
   const groups = groupByCoordinates(announcements);
   const result: Array<{
@@ -70,6 +77,8 @@ export function prepareAnnouncementsWithOffsets(announcements: Annonce[]): Array
     position: [number, number];
     offsetIndex: number;
     totalAtLocation: number;
+    quantityIndex: number;
+    totalQuantity: number;
   }> = [];
 
   groups.forEach((group, key) => {
@@ -88,21 +97,17 @@ export function prepareAnnouncementsWithOffsets(announcements: Annonce[]): Array
       
       const { lat, lng } = coords;
       
-      // Calculer l'offset pour éviter la superposition
+      // UN SEUL MARKER PAR ANNONCE, peu importe la quantité
+      // La quantité sera affichée dans le popup, pas comme plusieurs markers
       const offsetPosition = calculateMarkerOffset(lat, lng, index, group.length);
-      
-      console.log(`[prepareAnnouncementsWithOffsets] Annonce ${announcement.id} (${announcement.commune?.nomCommune || 'sans commune'}):`, {
-        coords: { lat, lng },
-        offset: offsetPosition,
-        index,
-        total: group.length
-      });
       
       result.push({
         announcement,
         position: offsetPosition,
         offsetIndex: index,
-        totalAtLocation: group.length
+        totalAtLocation: group.length,
+        quantityIndex: 0,
+        totalQuantity: announcement.quatite || 1
       });
     });
   });
@@ -112,10 +117,14 @@ export function prepareAnnouncementsWithOffsets(announcements: Annonce[]): Array
 
 /**
  * Crée une icône personnalisée avec couleur par catégorie
+ * Amélioré avec effet hover et support des markers multiples
  */
 export function createCategoryIcon(
   categoryName: string | undefined,
-  isHighlighted: boolean = false
+  isHighlighted: boolean = false,
+  isHovered: boolean = false,
+  quantityIndex: number = 0,
+  totalQuantity: number = 1
 ): L.Icon {
   // Couleurs par catégorie (avec fallback)
   const categoryColors: Record<string, string> = {
@@ -131,30 +140,83 @@ export function createCategoryIcon(
   };
 
   const color = categoryColors[categoryName || ''] || '#52c41a';
-  const size = isHighlighted ? 35 : 28;
+  
+  // Taille selon l'état (markers plus grands pour meilleure visibilité)
+  let size = 32; // Taille par défaut augmentée
+  if (isHighlighted) size = 38;
+  if (isHovered && !isHighlighted) size = 35;
+  
+  // Émojis selon la catégorie
+  const categoryEmojis: Record<string, string> = {
+    'Nourriture': '🍞',
+    'Vêtements': '👕',
+    'Équipements': '🔧',
+    'Médicaments': '💊',
+    'Livres': '📚',
+    'Jouets': '🧸',
+    'Mobilier': '🪑',
+    'Électronique': '📱',
+    'Autres': '📦'
+  };
+  
+  const emoji = categoryEmojis[categoryName || ''] || '📦';
+  
+  // Afficher un badge avec la quantité sur le marker si quantité > 1
+  const showQuantityBadge = totalQuantity > 1;
   
   return L.divIcon({
-    className: `custom-marker-${isHighlighted ? 'highlighted' : 'normal'}`,
+    className: `custom-marker ${isHighlighted ? 'highlighted' : ''} ${isHovered ? 'hovered' : ''}`,
     html: `
-      <div style="
+      <div class="marker-container" style="
+        position: relative;
         background-color: ${color};
         width: ${size}px;
         height: ${size}px;
         border-radius: 50% 50% 50% 0;
         transform: rotate(-45deg);
-        border: 3px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        border: ${isHighlighted ? '4px' : isHovered ? '3.5px' : '3px'} solid white;
+        box-shadow: ${isHovered ? '0 5px 15px rgba(0,0,0,0.5)' : isHighlighted ? '0 4px 12px rgba(24, 144, 255, 0.6)' : '0 3px 10px rgba(0,0,0,0.4)'};
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.3s;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        opacity: 1.0;
+        cursor: pointer;
+        z-index: ${isHovered || isHighlighted ? 1000 : 100};
       ">
         <div style="
           transform: rotate(45deg);
           color: white;
-          font-size: ${isHighlighted ? 18 : 14}px;
+          font-size: ${size * 0.55}px;
           font-weight: bold;
-        ">📦</div>
+          text-shadow: 0 2px 4px rgba(0,0,0,0.4);
+          line-height: 1;
+          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+        ">${emoji}</div>
+        ${showQuantityBadge ? `
+          <div style="
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+            color: white;
+            border-radius: 50%;
+            width: ${totalQuantity > 99 ? '26px' : '24px'};
+            height: ${totalQuantity > 99 ? '26px' : '24px'};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: ${totalQuantity > 99 ? '9px' : totalQuantity > 9 ? '10px' : '12px'};
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.3);
+            transform: rotate(45deg);
+            z-index: 1001;
+            min-width: ${totalQuantity > 99 ? '26px' : '24px'};
+          ">
+            <span style="transform: rotate(-45deg);">${totalQuantity}</span>
+          </div>
+        ` : ''}
       </div>
     `,
     iconSize: [size, size],
@@ -291,187 +353,194 @@ const COMMUNE_COORDINATES: Record<string, { lat: number; lng: number }> = {
 
 /**
  * Trouve les coordonnées WGS84 d'une commune par son nom
+ * Recherche améliorée avec normalisation et correspondances partielles
  */
 function getCommuneCoordinates(communeName: string): { lat: number; lng: number } | null {
-  if (!communeName) return null;
+  if (!communeName || !communeName.trim()) return null;
   
-  // Normaliser le nom (majuscules, sans accents)
-  const normalized = communeName.toUpperCase().trim();
+  // Normaliser le nom (majuscules, sans accents, sans espaces multiples)
+  const normalize = (str: string) => {
+    return str
+      .toUpperCase()
+      .trim()
+      .replace(/\s+/g, ' ') // Espaces multiples -> un seul
+      .replace(/[ÉÈÊË]/g, 'E')
+      .replace(/[ÀÂ]/g, 'A')
+      .replace(/[Ô]/g, 'O')
+      .replace(/[ÎÏ]/g, 'I')
+      .replace(/[ÙÛ]/g, 'U');
+  };
   
-  // Chercher dans la table de correspondance
-  const coords = COMMUNE_COORDINATES[normalized];
-  if (coords) {
-    console.log(`[getCommuneCoordinates] ✅ Coordonnées trouvées pour ${communeName}:`, coords);
-    return coords;
+  const normalized = normalize(communeName);
+  
+  // 1. Recherche exacte
+  const exactMatch = COMMUNE_COORDINATES[normalized];
+  if (exactMatch) {
+    console.log(`[getCommuneCoordinates] ✅ EXACTE: ${communeName} ->`, exactMatch);
+    return exactMatch;
   }
   
-  // Essayer avec des variations
+  // 2. Recherche sans accents et variations
   for (const [key, value] of Object.entries(COMMUNE_COORDINATES)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
-      console.log(`[getCommuneCoordinates] ✅ Coordonnées trouvées (variation) pour ${communeName}:`, value);
+    const normalizedKey = normalize(key);
+    if (normalized === normalizedKey) {
+      console.log(`[getCommuneCoordinates] ✅ NORMALISE: ${communeName} -> ${key}:`, value);
       return value;
     }
   }
   
-  console.warn(`[getCommuneCoordinates] ⚠️ Aucune coordonnée trouvée pour ${communeName}`);
+  // 3. Recherche par inclusion (communeName contient la clé ou vice versa)
+  for (const [key, value] of Object.entries(COMMUNE_COORDINATES)) {
+    const normalizedKey = normalize(key);
+    if (normalized.includes(normalizedKey) || normalizedKey.includes(normalized)) {
+      // Vérifier que la correspondance est significative (au moins 3 caractères)
+      const minLength = Math.min(normalized.length, normalizedKey.length);
+      if (minLength >= 3) {
+        console.log(`[getCommuneCoordinates] ✅ INCLUSION: ${communeName} -> ${key}:`, value);
+        return value;
+      }
+    }
+  }
+  
+  // 4. Recherche par mots (si le nom de la commune contient plusieurs mots)
+  const words = normalized.split(/\s+/).filter(w => w.length >= 3);
+  for (const word of words) {
+    for (const [key, value] of Object.entries(COMMUNE_COORDINATES)) {
+      const normalizedKey = normalize(key);
+      if (normalizedKey.includes(word) || word.includes(normalizedKey)) {
+        console.log(`[getCommuneCoordinates] ✅ MOT: ${communeName} (mot: ${word}) -> ${key}:`, value);
+        return value;
+      }
+    }
+  }
+  
+  console.warn(`[getCommuneCoordinates] ⚠️ AUCUNE correspondance pour "${communeName}" (normalisé: "${normalized}")`);
   return null;
 }
 
 /**
  * Valide que les coordonnées sont dans les limites du Maroc
+ * Plus strict : rejette tout ce qui pourrait être en Algérie ou ailleurs
  */
 export function isValidMoroccoCoordinates(lat: number, lng: number): boolean {
-  // Limites approximatives du Maroc
+  // Limites STRICTES du Maroc (avec marge de sécurité pour éviter l'Algérie)
   const moroccoBounds = {
-    minLat: 23.0,
-    maxLat: 35.8,
-    minLng: -17.0,
-    maxLng: -1.1
+    minLat: 21.0,   // Sud (Dakhla)
+    maxLat: 36.0,   // Nord (Tanger/Ceuta)
+    minLng: -17.0,  // Ouest (côte atlantique)
+    maxLng: -1.0    // Est (frontière Algérie, en évitant de dépasser)
   };
   
-  return (
-    lat >= moroccoBounds.minLat &&
-    lat <= moroccoBounds.maxLat &&
-    lng >= moroccoBounds.minLng &&
-    lng <= moroccoBounds.maxLng
-  );
+  // Validation stricte
+  if (lat < moroccoBounds.minLat || lat > moroccoBounds.maxLat) {
+    return false;
+  }
+  if (lng < moroccoBounds.minLng || lng > moroccoBounds.maxLng) {
+    return false;
+  }
+  
+  // Rejeter spécifiquement les zones d'Algérie connues
+  // Algérie: lng généralement > -1.0 (plus à l'est), mais aussi certaines zones frontalières
+  // Tindouf (Algérie) est autour de lat 27.6, lng -8.1 (frontière sud-ouest)
+  // Rejeter si on est trop à l'est (Algérie orientale)
+  if (lng > -0.5) {
+    return false; // Trop à l'est, probablement Algérie
+  }
+  
+  return true;
 }
 
 /**
- * Extrait les coordonnées d'une annonce avec validation
- * Gère automatiquement l'inversion lat/lng si nécessaire
- * Détecte aussi les coordonnées en système projeté (mètres) et les convertit
+ * Extrait les coordonnées d'une annonce avec validation STRICTE
+ * PRIORITÉ ABSOLUE: Table de correspondance des communes
+ * GARANTIT que toutes les coordonnées sont au Maroc
  */
 export function extractCoordinates(announcement: Annonce): { lat: number; lng: number } | null {
+  // ÉTAPE 1: PRIORITÉ ABSOLUE - Table de correspondance des communes
+  // C'est la source la plus fiable, toujours utiliser en premier
+  if (announcement.commune?.nomCommune) {
+    const communeName = announcement.commune.nomCommune.trim();
+    const knownCoords = getCommuneCoordinates(communeName);
+    
+    if (knownCoords && isValidMoroccoCoordinates(knownCoords.lat, knownCoords.lng)) {
+      console.log(`[extractCoordinates] ✅ PRIORITÉ: Coordonnées connues pour ${communeName}:`, knownCoords);
+      return knownCoords;
+    }
+    
+    // Si la commune n'est pas dans la table, essayer des variations du nom
+    const variations = [
+      communeName.toUpperCase(),
+      communeName.replace(/[ÉÈÊË]/g, 'E').replace(/[ÀÂ]/g, 'A').toUpperCase(),
+      communeName.split(' ')[0].toUpperCase(), // Premier mot
+    ];
+    
+    for (const variation of variations) {
+      const variantCoords = getCommuneCoordinates(variation);
+      if (variantCoords && isValidMoroccoCoordinates(variantCoords.lat, variantCoords.lng)) {
+        console.log(`[extractCoordinates] ✅ VARIATION: Coordonnées trouvées pour "${variation}" (original: ${communeName}):`, variantCoords);
+        return variantCoords;
+      }
+    }
+  }
+
+  // ÉTAPE 2: Si pas de commune ou pas dans la table, essayer la géométrie de l'annonce
   if (!announcement.geom?.coordinates) {
-    console.warn('[extractCoordinates] Annonce sans géométrie:', announcement.id);
-    return null;
+    console.warn(`[extractCoordinates] ⚠️ Annonce ${announcement.id} sans géométrie, utilisation du centre du Maroc`);
+    return { lat: 28.5, lng: -8.0 };
   }
 
   const [coord1, coord2] = announcement.geom.coordinates;
   
   if (!coord1 || !coord2 || isNaN(coord1) || isNaN(coord2)) {
-    console.warn('[extractCoordinates] Coordonnées invalides:', { id: announcement.id, coord1, coord2 });
-    return null;
-  }
-
-  console.log(`[extractCoordinates] Annonce ${announcement.id} - Coordonnées brutes: [${coord1}, ${coord2}]`);
-
-  // Détecter si les coordonnées sont en système projeté (mètres) au lieu de degrés WGS84
-  // Les coordonnées projetées sont généralement très grandes (millions)
-  // Les coordonnées WGS84 pour le Maroc sont: lat ~20-36, lng ~-17 à -1
-  const isProjected = Math.abs(coord1) > 1000 || Math.abs(coord2) > 1000;
-  
-  if (isProjected) {
-    console.warn('[extractCoordinates] Coordonnées en système projeté détectées (mètres), conversion nécessaire:', {
-      id: announcement.id,
-      coord1,
-      coord2,
-      note: 'Les coordonnées semblent être en mètres, pas en degrés WGS84'
-    });
-    // Si c'est en système projeté, on ne peut pas convertir sans connaître le SRID exact
-    // On va utiliser les coordonnées de la commune si disponibles
-    if (announcement.commune?.geom?.coordinates) {
-      const [commLng, commLat] = announcement.commune.geom.coordinates;
-      if (commLat >= 20 && commLat <= 36 && commLng >= -17 && commLng <= -1) {
-        console.log(`[extractCoordinates] Utilisation des coordonnées de la commune pour annonce ${announcement.id}`);
-        return { lat: commLat, lng: commLng };
-      }
-    }
-    // Fallback vers centre du Maroc
-    console.warn('[extractCoordinates] Utilisation du centre du Maroc comme fallback');
+    console.warn(`[extractCoordinates] ⚠️ Coordonnées NaN pour annonce ${announcement.id}, utilisation du centre du Maroc`);
     return { lat: 28.5, lng: -8.0 };
   }
 
-  // PRIORITÉ: Utiliser les coordonnées de la commune si disponibles
-  // Les communes ont généralement les bonnes coordonnées
-  if (announcement.commune?.nomCommune) {
-    const communeName = announcement.commune.nomCommune;
-    
-    // D'abord, essayer la table de correspondance (coordonnées WGS84 réelles)
-    const knownCoords = getCommuneCoordinates(communeName);
-    if (knownCoords) {
-      console.log(`[extractCoordinates] ✅ Utilisation coordonnées connues pour ${communeName}:`, knownCoords);
-      return knownCoords;
+  // Détecter si les coordonnées sont en système projeté (mètres)
+  // Les coordonnées WGS84 pour le Maroc: lat ~21-36, lng ~-17 à -1
+  const isProjected = Math.abs(coord1) > 1000 || Math.abs(coord2) > 1000;
+  
+  if (isProjected) {
+    console.warn(`[extractCoordinates] ⚠️ Coordonnées projetées détectées pour annonce ${announcement.id}: [${coord1}, ${coord2}]`);
+    // Si projeté, on ne peut pas les utiliser directement
+    // Fallback vers centre du Maroc ou commune
+    if (announcement.commune?.nomCommune) {
+      const defaultCoords = { lat: 32.0, lng: -6.0 }; // Centre géographique Maroc
+      console.log(`[extractCoordinates] Utilisation coordonnées par défaut pour commune ${announcement.commune.nomCommune}`);
+      return defaultCoords;
     }
-    
-    // Sinon, essayer d'extraire depuis la géométrie de la commune
-    if (announcement.commune.geom?.coordinates) {
-      const [commCoord1, commCoord2] = announcement.commune.geom.coordinates;
-      console.log(`[extractCoordinates] Coordonnées de la commune ${communeName}: [${commCoord1}, ${commCoord2}]`);
-      
-      // Détecter si c'est en système projeté (mètres)
-      const isProjected = Math.abs(commCoord1) > 1000 || Math.abs(commCoord2) > 1000;
-      
-      if (isProjected) {
-        console.warn(`[extractCoordinates] ⚠️ Coordonnées de la commune ${communeName} en système projeté, utilisation de la table de correspondance échouée`);
-        // Ne pas utiliser ces coordonnées projetées
-      } else {
-        // Essayer l'ordre [lng, lat] pour la commune
-        let commLat = commCoord2;
-        let commLng = commCoord1;
-        
-        if (isValidMoroccoCoordinates(commLat, commLng)) {
-          console.log(`[extractCoordinates] ✅ Utilisation coordonnées commune [lng, lat]: lat=${commLat}, lng=${commLng}`);
-          return { lat: commLat, lng: commLng };
-        }
-        
-        // Essayer l'ordre inverse [lat, lng] pour la commune
-        commLat = commCoord1;
-        commLng = commCoord2;
-        
-        if (isValidMoroccoCoordinates(commLat, commLng)) {
-          console.log(`[extractCoordinates] ✅ Utilisation coordonnées commune [lat, lng]: lat=${commLat}, lng=${commLng}`);
-          return { lat: commLat, lng: commLng };
-        }
-      }
-    }
+    return { lat: 28.5, lng: -8.0 };
   }
 
-  // Si la commune n'a pas de coordonnées valides, utiliser celles de l'annonce
-  // Essayer d'abord l'ordre GeoJSON standard [lng, lat]
+  // ÉTAPE 3: Essayer les deux ordres possibles [lng, lat] et [lat, lng]
+  // Essayer [lng, lat] d'abord (standard GeoJSON)
   let lat = coord2;
   let lng = coord1;
   
-  console.log(`[extractCoordinates] Essai ordre [lng, lat]: lat=${lat}, lng=${lng}`);
+  if (isValidMoroccoCoordinates(lat, lng)) {
+    console.log(`[extractCoordinates] ✅ Ordre [lng, lat] valide pour annonce ${announcement.id}: lat=${lat}, lng=${lng}`);
+    return { lat, lng };
+  }
   
-  // Vérifier si les coordonnées sont dans les limites du Maroc
-  if (!isValidMoroccoCoordinates(lat, lng)) {
-    // Si pas valides, essayer l'ordre inverse [lat, lng]
-    console.warn('[extractCoordinates] Coordonnées hors du Maroc avec ordre [lng, lat], essai avec ordre inverse:', { 
-      id: announcement.id, 
-      original: { lng: coord1, lat: coord2 },
-      inverted: { lat: coord1, lng: coord2 }
-    });
-    
-    // Essayer l'ordre inverse
-    lat = coord1;
-    lng = coord2;
-    
-    console.log(`[extractCoordinates] Essai ordre [lat, lng]: lat=${lat}, lng=${lng}`);
-    
-    // Vérifier à nouveau
-    if (!isValidMoroccoCoordinates(lat, lng)) {
-      console.error('[extractCoordinates] Coordonnées invalides même après inversion:', { 
-        id: announcement.id, 
-        coord1, 
-        coord2,
-        asLngLat: { lng: coord1, lat: coord2 },
-        asLatLng: { lat: coord1, lng: coord2 },
-        titre: announcement.titre,
-        commune: announcement.commune?.nomCommune
-      });
-      
-      // Utiliser le centre du Maroc comme fallback
-      console.warn('[extractCoordinates] Fallback vers centre du Maroc');
-      return { lat: 28.5, lng: -8.0 };
-    } else {
-      console.log(`[extractCoordinates] ✅ Coordonnées valides après inversion pour annonce ${announcement.id}`);
-    }
-  } else {
-    console.log(`[extractCoordinates] ✅ Coordonnées valides (ordre [lng, lat]) pour annonce ${announcement.id}`);
+  // Essayer l'ordre inverse [lat, lng]
+  lat = coord1;
+  lng = coord2;
+  
+  if (isValidMoroccoCoordinates(lat, lng)) {
+    console.log(`[extractCoordinates] ✅ Ordre [lat, lng] valide pour annonce ${announcement.id}: lat=${lat}, lng=${lng}`);
+    return { lat, lng };
   }
 
-  return { lat, lng };
+  // ÉTAPE 4: Si rien ne fonctionne, fallback sécurisé
+  console.error(`[extractCoordinates] ❌ Coordonnées invalides pour annonce ${announcement.id}:`, {
+    coord1,
+    coord2,
+    titre: announcement.titre,
+    commune: announcement.commune?.nomCommune,
+    note: 'Les coordonnées sont hors du Maroc ou invalides, utilisation du centre par défaut'
+  });
+  
+  // Utiliser le centre du Maroc comme fallback absolu
+  return { lat: 28.5, lng: -8.0 };
 }
 
