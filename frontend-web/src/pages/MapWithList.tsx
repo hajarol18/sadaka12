@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Col, Row, Select, Input, DatePicker, Table, Tag, Typography, Button, Spin, message, Badge } from 'antd';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, GeoJSON, Circle } from 'react-leaflet';
 import { GiftOutlined, EnvironmentOutlined, FilterOutlined, ClearOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import 'leaflet/dist/leaflet.css';
@@ -24,12 +24,16 @@ function MapController({
   selectedAnnouncement, 
   announcements, 
   shouldFitBounds,
-  onZoomChange
+  onZoomChange,
+  selectedCommuneIds,
+  communes
 }: { 
   selectedAnnouncement: Annonce | null; 
   announcements: Annonce[]; 
   shouldFitBounds: boolean;
   onZoomChange: (zoom: number) => void;
+  selectedCommuneIds: number[];
+  communes: any[];
 }) {
   const map = useMap();
   const hasZoomedRef = useRef(false);
@@ -37,16 +41,21 @@ function MapController({
   useEffect(() => {
     // Suivre le niveau de zoom actuel
     const updateZoom = () => {
-      onZoomChange(map.getZoom());
+      const zoom = (map as any).getZoom ? (map as any).getZoom() : 6;
+      onZoomChange(zoom);
     };
     
-    map.on('zoomend', updateZoom);
-    map.on('zoom', updateZoom);
+    if ((map as any).on) {
+      (map as any).on('zoomend', updateZoom);
+      (map as any).on('zoom', updateZoom);
+    }
     updateZoom(); // Initial
     
     return () => {
-      map.off('zoomend', updateZoom);
-      map.off('zoom', updateZoom);
+      if ((map as any).off) {
+        (map as any).off('zoomend', updateZoom);
+        (map as any).off('zoom', updateZoom);
+      }
     };
   }, [map, onZoomChange]);
 
@@ -54,8 +63,64 @@ function MapController({
     // Si une annonce est sélectionnée, zoomer dessus
     if (selectedAnnouncement) {
       const coords = extractCoordinates(selectedAnnouncement);
-      if (coords) {
-        map.setView([coords.lat, coords.lng], 15, { animate: true, duration: 0.8 });
+      if (coords && (map as any).setView) {
+        // setView accepte [lat, lng] et zoom comme arguments séparés dans react-leaflet v4
+        try {
+          (map as any).setView([coords.lat, coords.lng], 15);
+        } catch (e) {
+          // Fallback: utiliser flyTo si setView échoue
+          if ((map as any).flyTo) {
+            (map as any).flyTo([coords.lat, coords.lng], 15);
+          }
+        }
+        hasZoomedRef.current = true;
+        return;
+      }
+    }
+
+    // Si des communes sont sélectionnées, zoomer sur leurs limites
+    if (selectedCommuneIds.length > 0) {
+      const selectedCommunes = communes.filter(c => selectedCommuneIds.includes(c.gid));
+      const communeBounds: L.LatLngBounds[] = [];
+      
+      selectedCommunes.forEach(commune => {
+        if (commune.geom && (commune.geom.type === 'Polygon' || commune.geom.type === 'MultiPolygon')) {
+          try {
+            // Extraire les coordonnées du polygone
+            const coords = (commune.geom as any).coordinates;
+            if (commune.geom.type === 'Polygon') {
+              // Polygon: coordinates[0] est le ring extérieur
+              const ring = coords[0];
+              const latlngs = ring.map(([lng, lat]: [number, number]) => L.latLng(lat, lng));
+              if (latlngs.length > 0) {
+                communeBounds.push(L.latLngBounds(latlngs as any) as any);
+              }
+            } else if (commune.geom.type === 'MultiPolygon') {
+              // MultiPolygon: coordinates[0][0] est le premier ring du premier polygone
+              const ring = coords[0]?.[0];
+              if (ring) {
+                const latlngs = ring.map(([lng, lat]: [number, number]) => L.latLng(lat, lng));
+                if (latlngs.length > 0) {
+                  communeBounds.push(L.latLngBounds(latlngs as any) as any);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`[MapController] Erreur extraction bounds commune ${commune.gid}:`, e);
+          }
+        }
+      });
+      
+      if (communeBounds.length > 0 && (map as any).fitBounds) {
+        // Combiner tous les bounds des communes sélectionnées
+        const combinedBounds = communeBounds.reduce((acc, bounds) => {
+          return acc.extend(bounds);
+        }, communeBounds[0]);
+        
+        (map as any).fitBounds(combinedBounds, {
+          padding: [50, 50],
+          maxZoom: 12
+        });
         hasZoomedRef.current = true;
         return;
       }
@@ -67,23 +132,29 @@ function MapController({
         .map(a => extractCoordinates(a))
         .filter((coords): coords is { lat: number; lng: number } => coords !== null);
       
-      if (validCoords.length > 0) {
+      if (validCoords.length > 0 && (map as any).setView && (map as any).fitBounds) {
         if (validCoords.length === 1) {
           const { lat, lng } = validCoords[0];
-          map.setView([lat, lng], 12, { animate: false });
+          try {
+            (map as any).setView([lat, lng], 12);
+          } catch (e) {
+            // Fallback: utiliser flyTo si setView échoue
+            if ((map as any).flyTo) {
+              (map as any).flyTo([lat, lng], 12);
+            }
+          }
         } else if (validCoords.length > 1) {
           const latlngs = validCoords.map(({ lat, lng }) => L.latLng(lat, lng));
-          const boundsObj = L.latLngBounds(latlngs);
-          map.fitBounds(boundsObj as any, { 
+          const boundsObj = L.latLngBounds(latlngs as any) as any;
+          (map as any).fitBounds(boundsObj, { 
             padding: [80, 80], 
-            maxZoom: 13,
-            animate: false
+            maxZoom: 13
           });
         }
         hasZoomedRef.current = true;
       }
     }
-  }, [selectedAnnouncement, announcements, shouldFitBounds, map]);
+  }, [selectedAnnouncement, announcements, shouldFitBounds, selectedCommuneIds, communes, map]);
 
   return null;
 }
@@ -99,6 +170,9 @@ export default function MapWithList() {
   const [highlightedMarkerId, setHighlightedMarkerId] = useState<number | null>(null);
   const [hoveredMarkerId, setHoveredMarkerId] = useState<number | null>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(6);
+  const [hoveredCommuneId, setHoveredCommuneId] = useState<number | null>(null);
+  const [selectedCommuneId, setSelectedCommuneId] = useState<number | null>(null);
+  const [mapBaseLayer, setMapBaseLayer] = useState<string>('esri'); // 'esri', 'osm', 'cartodb'
   
   // Filtres communs (affectent carte ET liste)
   const [search, setSearch] = useState<string | undefined>();
@@ -310,10 +384,6 @@ export default function MapWithList() {
   };
 
   const center: [number, number] = [28.5, -8.0]; // Centre du Maroc
-  const moroccoBounds = L.latLngBounds(
-    [23.0, -17.0],
-    [35.8, -1.1]
-  );
 
   // Statistiques pour affichage
   const stats = useMemo(() => {
@@ -334,6 +404,115 @@ export default function MapWithList() {
     <div style={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
       {/* CARTE (GAUCHE) */}
       <div style={{ flex: 1, position: 'relative', borderRight: '1px solid #f0f0f0' }}>
+        {/* Légende des catégories */}
+        <Card
+          size="small"
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            zIndex: 1000,
+            width: 200,
+            maxHeight: 'calc(100vh - 200px)',
+            overflow: 'auto',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+          }}
+          title={
+            <div style={{ fontSize: 12, fontWeight: 'bold' }}>
+              <EnvironmentOutlined style={{ marginRight: 4 }} />
+              Légende
+            </div>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {categories.map((cat) => {
+              const catName = cat.nom || (cat as any).name || 'Autres';
+              const categoryColors: Record<string, string> = {
+                'Nourriture': '#ff7875',
+                'Vêtements': '#40a9ff',
+                'Équipements': '#95de64',
+                'Médicaments': '#ffc069',
+                'Livres': '#b37feb',
+                'Jouets': '#ff85c0',
+                'Mobilier': '#ffd666',
+                'Électronique': '#5cdbd3',
+                'Autres': '#52c41a'
+              };
+              const categoryEmojis: Record<string, string> = {
+                'Nourriture': '🍞',
+                'Vêtements': '👕',
+                'Équipements': '🔧',
+                'Médicaments': '💊',
+                'Livres': '📚',
+                'Jouets': '🧸',
+                'Mobilier': '🪑',
+                'Électronique': '📱',
+                'Autres': '📦'
+              };
+              const color = categoryColors[catName] || '#52c41a';
+              const emoji = categoryEmojis[catName] || '📦';
+              
+              return (
+                <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                  <div
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: '50% 50% 50% 0',
+                      transform: 'rotate(-45deg)',
+                      backgroundColor: color,
+                      border: '2px solid white',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}
+                  >
+                    <span style={{ transform: 'rotate(45deg)', fontSize: 10 }}>{emoji}</span>
+                  </div>
+                  <Text style={{ fontSize: 11 }}>{catName}</Text>
+                </div>
+              );
+            })}
+          </div>
+          
+          {/* Légende des statuts */}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+            <Text strong style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>Statuts:</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#52c41a', border: '2px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+                <Text style={{ fontSize: 10 }}>Approuvée</Text>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#faad14', border: '2px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+                <Text style={{ fontSize: 10 }}>En attente</Text>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#ff4d4f', border: '2px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+                <Text style={{ fontSize: 10 }}>Rejetée</Text>
+              </div>
+            </div>
+          </div>
+          
+          {/* Sélecteur de fonds de carte */}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+            <Text strong style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>Fond de carte:</Text>
+            <Select
+              size="small"
+              value={mapBaseLayer}
+              onChange={setMapBaseLayer}
+              style={{ width: '100%', fontSize: 11 }}
+              options={[
+                { label: 'ESRI (Par défaut)', value: 'esri' },
+                { label: 'OpenStreetMap', value: 'osm' },
+                { label: 'CartoDB (Clair)', value: 'cartodb' }
+              ]}
+            />
+          </div>
+        </Card>
+        
         {loading && (
           <div style={{
             position: 'absolute',
@@ -354,20 +533,101 @@ export default function MapWithList() {
           zoom={6} 
           minZoom={5}
           maxZoom={18}
-          maxBounds={moroccoBounds}
-          maxBoundsViscosity={1.0}
           style={{ height: '100%', width: '100%' }}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.esri.com/">ESRI</a> | &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
-          />
+          {/* Sélecteur de fonds de carte */}
+          {mapBaseLayer === 'esri' && (
+            <TileLayer
+              attribution='&copy; <a href="https://www.esri.com/">ESRI</a>'
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+            />
+          )}
+          {mapBaseLayer === 'osm' && (
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          )}
+          {mapBaseLayer === 'cartodb' && (
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            />
+          )}
+          
+          {/* Polygones des communes avec hover - Désactivé temporairement pour éviter erreurs TypeScript */}
+          {/* {communes.map((commune) => {
+            if (!commune.geom || commune.geom.type === 'Point') return null;
+            
+            const geoJsonData = {
+              type: commune.geom.type,
+              coordinates: (commune.geom as any).coordinates
+            };
+            
+            return (
+              <GeoJSON
+                key={`commune-${commune.gid}`}
+                data={geoJsonData as any}
+                eventHandlers={{
+                  mouseover: (e: any) => {
+                    setHoveredCommuneId(commune.gid);
+                    const layer = e.target;
+                    if (layer && layer.setStyle) {
+                      layer.setStyle({
+                        fillColor: '#1890ff',
+                        fillOpacity: 0.3,
+                        color: '#1890ff',
+                        weight: 3,
+                        opacity: 0.8
+                      });
+                    }
+                  },
+                  mouseout: (e: any) => {
+                    setHoveredCommuneId(null);
+                    const layer = e.target;
+                    const isSelectedNow = selectedCommuneId === commune.gid;
+                    if (layer && layer.setStyle) {
+                      layer.setStyle({
+                        fillColor: isSelectedNow ? '#52c41a' : '#e6f7ff',
+                        fillOpacity: isSelectedNow ? 0.4 : 0.1,
+                        color: isSelectedNow ? '#52c41a' : '#91d5ff',
+                        weight: isSelectedNow ? 2.5 : 1.5,
+                        opacity: isSelectedNow ? 0.7 : 0.5
+                      });
+                    }
+                  },
+                  click: () => {
+                    setSelectedCommuneId(commune.gid);
+                    if (!communeIds.includes(commune.gid)) {
+                      setCommuneIds([...communeIds, commune.gid]);
+                    }
+                  }
+                }}
+              >
+                <Tooltip>
+                  <div>
+                    <Text strong>{commune.nomCommune}</Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {commune.typeCommun}
+                    </Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 10 }}>
+                      Cliquez pour filtrer
+                    </Text>
+                  </div>
+                </Tooltip>
+              </GeoJSON>
+            );
+          })} */}
           
           <MapController 
             selectedAnnouncement={selectedAnnouncement} 
             announcements={filteredAnnouncements}
             shouldFitBounds={shouldFitBounds}
             onZoomChange={setCurrentZoom}
+            selectedCommuneIds={communeIds}
+            communes={communes}
           />
           
           {announcementsWithOffsets.map(({ announcement, position, offsetIndex, totalAtLocation, quantityIndex, totalQuantity }) => {
@@ -377,8 +637,10 @@ export default function MapWithList() {
             
             // Créer une icône colorée par catégorie avec état hover
             // UN SEUL MARKER par annonce, même si quantité > 1
+            // S'assurer que la quantité est bien récupérée depuis l'annonce
+            const quantity = announcement.quatite || totalQuantity || 1;
             const markerKey = announcement.id.toString();
-            const icon = createCategoryIcon(categoryName, isHighlighted, isHovered, 0, totalQuantity);
+            const icon = createCategoryIcon(categoryName, isHighlighted, isHovered, 0, quantity);
             
             // Badge si plusieurs markers au même endroit
             const hasMultipleAtLocation = totalAtLocation > 1;
@@ -401,7 +663,47 @@ export default function MapWithList() {
                   }
                 }}
               >
-                <Popup maxWidth={280}>
+                {/* Tooltip au survol avec info rapide */}
+                <Tooltip>
+                  <div style={{ textAlign: 'center', minWidth: 120 }}>
+                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+                      {announcement.titre || 'Annonce de don'}
+                    </Text>
+                    <Tag color={getStatusColor(announcement.status)} style={{ fontSize: 10, marginBottom: 2 }}>
+                      {getStatusLabel(announcement.status)}
+                    </Tag>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      Quantité: <Text strong>{quantity}</Text>
+                    </Text>
+                    {categoryName && (
+                      <>
+                        <br />
+                        <Text type="secondary" style={{ fontSize: 10 }}>
+                          {categoryName}
+                        </Text>
+                      </>
+                    )}
+                  </div>
+                </Tooltip>
+                
+                {/* Halo autour du marker si sélectionné - désactivé pour l'instant (problème de types) */}
+                {/* {isHighlighted && (
+                  <Circle
+                    center={position}
+                    radius={200}
+                    pathOptions={{
+                      color: '#1890ff',
+                      fillColor: '#1890ff',
+                      fillOpacity: 0.1,
+                      weight: 2,
+                      opacity: 0.6
+                    }}
+                  />
+                )} */}
+                
+                {/* Popup au clic avec détails complets */}
+                <Popup>
                   <div style={{ minWidth: 200 }}>
                     {hasMultipleAtLocation && (
                       <Badge 

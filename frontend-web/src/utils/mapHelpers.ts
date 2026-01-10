@@ -141,10 +141,12 @@ export function createCategoryIcon(
 
   const color = categoryColors[categoryName || ''] || '#52c41a';
   
-  // Taille selon l'état (markers plus grands pour meilleure visibilité)
-  let size = 32; // Taille par défaut augmentée
-  if (isHighlighted) size = 38;
-  if (isHovered && !isHighlighted) size = 35;
+  // Taille selon l'état ET la quantité (markers plus grands si quantité plus grande)
+  // Taille de base selon la quantité: 28px pour qty=1, +2px par unité supplémentaire (max 48px)
+  const baseSize = 28 + Math.min((totalQuantity - 1) * 2, 20); // Max 48px
+  let size = baseSize;
+  if (isHighlighted) size = Math.min(baseSize + 6, 50); // Max 50px
+  if (isHovered && !isHighlighted) size = Math.min(baseSize + 3, 45); // Max 45px
   
   // Émojis selon la catégorie
   const categoryEmojis: Record<string, string> = {
@@ -161,8 +163,10 @@ export function createCategoryIcon(
   
   const emoji = categoryEmojis[categoryName || ''] || '📦';
   
-  // Afficher un badge avec la quantité sur le marker si quantité > 1
-  const showQuantityBadge = totalQuantity > 1;
+  // Afficher TOUJOURS un badge avec la quantité sur le marker (même si c'est 1)
+  // S'assurer que totalQuantity est au moins 1
+  const quantity = totalQuantity && totalQuantity > 0 ? totalQuantity : 1;
+  const showQuantityBadge = true; // TOUJOURS afficher le badge
   
   return L.divIcon({
     className: `custom-marker ${isHighlighted ? 'highlighted' : ''} ${isHovered ? 'hovered' : ''}`,
@@ -198,23 +202,23 @@ export function createCategoryIcon(
             position: absolute;
             top: -10px;
             right: -10px;
-            background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+            background: ${quantity > 1 ? 'linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)' : 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)'};
             color: white;
             border-radius: 50%;
-            width: ${totalQuantity > 99 ? '26px' : '24px'};
-            height: ${totalQuantity > 99 ? '26px' : '24px'};
+            width: ${quantity > 99 ? '26px' : '24px'};
+            height: ${quantity > 99 ? '26px' : '24px'};
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: ${totalQuantity > 99 ? '9px' : totalQuantity > 9 ? '10px' : '12px'};
+            font-size: ${quantity > 99 ? '9px' : quantity > 9 ? '10px' : '12px'};
             font-weight: bold;
             border: 3px solid white;
             box-shadow: 0 3px 8px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.3);
             transform: rotate(45deg);
             z-index: 1001;
-            min-width: ${totalQuantity > 99 ? '26px' : '24px'};
+            min-width: ${quantity > 99 ? '26px' : '24px'};
           ">
-            <span style="transform: rotate(-45deg);">${totalQuantity}</span>
+            <span style="transform: rotate(-45deg);">${quantity}</span>
           </div>
         ` : ''}
       </div>
@@ -228,127 +232,67 @@ export function createCategoryIcon(
 /**
  * Table de correspondance des communes avec leurs coordonnées WGS84 réelles
  * Utilisée quand les coordonnées de la commune sont en système projeté
+ * Nettoyée pour enlever les doublons
  */
 const COMMUNE_COORDINATES: Record<string, { lat: number; lng: number }> = {
-  'TAROUDANNT': { lat: 30.4703, lng: -8.8769 },
-  'TAROUDANT': { lat: 30.4703, lng: -8.8769 },
   'AGADIR': { lat: 30.4278, lng: -9.5981 },
-  'CASABLANCA': { lat: 33.5731, lng: -7.5898 },
-  'RABAT': { lat: 34.0209, lng: -6.8416 },
-  'MARRAKECH': { lat: 31.6295, lng: -7.9811 },
-  'FES': { lat: 34.0331, lng: -5.0003 },
-  'TANGER': { lat: 35.7673, lng: -5.7998 },
-  'MEKNES': { lat: 33.8950, lng: -5.5547 },
-  'OUJDA': { lat: 34.6867, lng: -1.9114 },
-  'SAFI': { lat: 32.2994, lng: -9.2372 },
-  'KENITRA': { lat: 34.2611, lng: -6.5802 },
-  'EL JADIDA': { lat: 33.2316, lng: -8.5004 },
-  'TETOUAN': { lat: 35.5769, lng: -5.3684 },
-  'BENI MELLAL': { lat: 32.3373, lng: -6.3498 },
-  'NADOR': { lat: 35.1681, lng: -2.9333 },
-  'KHOURIBGA': { lat: 32.8847, lng: -6.9061 },
-  'SETTAT': { lat: 33.0014, lng: -7.6167 },
-  'LARACHE': { lat: 35.1939, lng: -6.1556 },
-  'KSAR EL KEBIR': { lat: 34.9981, lng: -5.9033 },
-  'TAZA': { lat: 34.2144, lng: -4.0086 },
-  'ERRACHIDIA': { lat: 31.9311, lng: -4.4247 },
-  'BERKANE': { lat: 34.9167, lng: -2.3167 },
-  'SIDI KACEM': { lat: 34.2333, lng: -5.7000 },
-  'TAOURIRT': { lat: 34.4167, lng: -2.9000 },
-  'SIDI SLIMANE': { lat: 34.2667, lng: -5.9333 },
-  'GUERCIF': { lat: 34.2333, lng: -3.3500 },
-  'OUED ZEM': { lat: 32.8667, lng: -6.5667 },
-  'FQUIH BEN SALAH': { lat: 32.5000, lng: -6.7000 },
-  'TAFRAOUT': { lat: 29.7167, lng: -8.9833 },
-  'TIZNIT': { lat: 29.7167, lng: -9.7167 },
-  'ESSAOUIRA': { lat: 31.5085, lng: -9.7595 },
-  'AZILAL': { lat: 31.9667, lng: -6.5667 },
-  'MIDELT': { lat: 32.6833, lng: -4.7333 },
-  'FIGUIG': { lat: 32.1167, lng: -1.2167 },
-  'OUARZAZATE': { lat: 30.9200, lng: -6.9100 },
-  'ZAGORA': { lat: 30.3333, lng: -5.8333 },
-  'DAKHLA': { lat: 23.7081, lng: -15.9497 },
-  'LAAYOUNE': { lat: 27.1536, lng: -13.2033 },
-  'SMARA': { lat: 26.7333, lng: -11.6833 },
-  'BOUDENIB': { lat: 32.0500, lng: -3.6000 },
-  'JERADA': { lat: 34.3167, lng: -2.1667 },
-  'YOUSSOUFIA': { lat: 32.2500, lng: -8.5333 },
-  'SIDI IFNI': { lat: 29.3833, lng: -10.1667 },
-  'TARFAYA': { lat: 27.9500, lng: -12.9167 },
-  'TAN TAN': { lat: 28.4333, lng: -11.1000 },
-  'GUELMIM': { lat: 28.9833, lng: -10.0667 },
-  'ASILAH': { lat: 35.4667, lng: -6.0333 },
-  'CHEFCHAOUEN': { lat: 35.1667, lng: -5.2667 },
   'AL HOCEIMA': { lat: 35.2500, lng: -3.9333 },
-  'NADOR': { lat: 35.1681, lng: -2.9333 },
-  'TAZA': { lat: 34.2144, lng: -4.0086 },
-  'IFRANE': { lat: 33.5333, lng: -5.1167 },
+  'ASILAH': { lat: 35.4667, lng: -6.0333 },
+  'AZILAL': { lat: 31.9667, lng: -6.5667 },
   'AZROU': { lat: 33.4333, lng: -5.2167 },
-  'KHENIFRA': { lat: 32.9333, lng: -5.6667 },
-  'DEMNATE': { lat: 31.7333, lng: -7.0000 },
   'BEN GUERIR': { lat: 32.2333, lng: -7.9500 },
-  'YOUSSOUFIA': { lat: 32.2500, lng: -8.5333 },
-  'SAFI': { lat: 32.2994, lng: -9.2372 },
-  'EL JADIDA': { lat: 33.2316, lng: -8.5004 },
+  'BENI MELLAL': { lat: 32.3373, lng: -6.3498 },
+  'BERKANE': { lat: 34.9167, lng: -2.3167 },
+  'BOUDENIB': { lat: 32.0500, lng: -3.6000 },
   'CASABLANCA': { lat: 33.5731, lng: -7.5898 },
+  'CHEFCHAOUEN': { lat: 35.1667, lng: -5.2667 },
+  'DAKHLA': { lat: 23.7081, lng: -15.9497 },
+  'DEMNATE': { lat: 31.7333, lng: -7.0000 },
+  'EL JADIDA': { lat: 33.2316, lng: -8.5004 },
+  'ERRACHIDIA': { lat: 31.9311, lng: -4.4247 },
+  'ESSAOUIRA': { lat: 31.5085, lng: -9.7595 },
+  'FES': { lat: 34.0331, lng: -5.0003 },
+  'FIGUIG': { lat: 32.1167, lng: -1.2167 },
+  'FQUIH BEN SALAH': { lat: 32.5000, lng: -6.7000 },
+  'GUELMIM': { lat: 28.9833, lng: -10.0667 },
+  'GUERCIF': { lat: 34.2333, lng: -3.3500 },
+  'IFRANE': { lat: 33.5333, lng: -5.1167 },
+  'JERADA': { lat: 34.3167, lng: -2.1667 },
+  'KENITRA': { lat: 34.2611, lng: -6.5802 },
+  'KHENIFRA': { lat: 32.9333, lng: -5.6667 },
+  'KHOURIBGA': { lat: 32.8847, lng: -6.9061 },
+  'KSAR EL KEBIR': { lat: 34.9981, lng: -5.9033 },
+  'LAAYOUNE': { lat: 27.1536, lng: -13.2033 },
+  'LARACHE': { lat: 35.1939, lng: -6.1556 },
+  'MARRAKECH': { lat: 31.6295, lng: -7.9811 },
+  'MEKNES': { lat: 33.8950, lng: -5.5547 },
+  'MIDELT': { lat: 32.6833, lng: -4.7333 },
   'MOHAMMEDIA': { lat: 33.6833, lng: -7.3833 },
-  'TEMARA': { lat: 33.9167, lng: -6.9167 },
+  'NADOR': { lat: 35.1681, lng: -2.9333 },
+  'OUARZAZATE': { lat: 30.9200, lng: -6.9100 },
+  'OUED ZEM': { lat: 32.8667, lng: -6.5667 },
+  'OUJDA': { lat: 34.6867, lng: -1.9114 },
   'RABAT': { lat: 34.0209, lng: -6.8416 },
+  'SAFI': { lat: 32.2994, lng: -9.2372 },
   'SALE': { lat: 34.0500, lng: -6.8167 },
-  'KENITRA': { lat: 34.2611, lng: -6.5802 },
+  'SETTAT': { lat: 33.0014, lng: -7.6167 },
+  'SIDI IFNI': { lat: 29.3833, lng: -10.1667 },
   'SIDI KACEM': { lat: 34.2333, lng: -5.7000 },
   'SIDI SLIMANE': { lat: 34.2667, lng: -5.9333 },
-  'MEKNES': { lat: 33.8950, lng: -5.5547 },
-  'FES': { lat: 34.0331, lng: -5.0003 },
-  'TAZA': { lat: 34.2144, lng: -4.0086 },
-  'OUJDA': { lat: 34.6867, lng: -1.9114 },
-  'BERKANE': { lat: 34.9167, lng: -2.3167 },
-  'NADOR': { lat: 35.1681, lng: -2.9333 },
-  'AL HOCEIMA': { lat: 35.2500, lng: -3.9333 },
-  'TANGER': { lat: 35.7673, lng: -5.7998 },
-  'TETOUAN': { lat: 35.5769, lng: -5.3684 },
-  'LARACHE': { lat: 35.1939, lng: -6.1556 },
-  'KSAR EL KEBIR': { lat: 34.9981, lng: -5.9033 },
-  'ASILAH': { lat: 35.4667, lng: -6.0333 },
-  'CHEFCHAOUEN': { lat: 35.1667, lng: -5.2667 },
-  'OUARZAZATE': { lat: 30.9200, lng: -6.9100 },
-  'ZAGORA': { lat: 30.3333, lng: -5.8333 },
-  'TAROUDANT': { lat: 30.4703, lng: -8.8769 },
-  'TAROUDANNT': { lat: 30.4703, lng: -8.8769 },
-  'AGADIR': { lat: 30.4278, lng: -9.5981 },
-  'TIZNIT': { lat: 29.7167, lng: -9.7167 },
-  'TAFRAOUT': { lat: 29.7167, lng: -8.9833 },
-  'SIDI IFNI': { lat: 29.3833, lng: -10.1667 },
-  'GUELMIM': { lat: 28.9833, lng: -10.0667 },
-  'TAN TAN': { lat: 28.4333, lng: -11.1000 },
-  'TARFAYA': { lat: 27.9500, lng: -12.9167 },
-  'LAAYOUNE': { lat: 27.1536, lng: -13.2033 },
   'SMARA': { lat: 26.7333, lng: -11.6833 },
-  'DAKHLA': { lat: 23.7081, lng: -15.9497 },
-  'MARRAKECH': { lat: 31.6295, lng: -7.9811 },
-  'ESSAOUIRA': { lat: 31.5085, lng: -9.7595 },
-  'BENI MELLAL': { lat: 32.3373, lng: -6.3498 },
-  'AZILAL': { lat: 31.9667, lng: -6.5667 },
-  'KHOURIBGA': { lat: 32.8847, lng: -6.9061 },
-  'SETTAT': { lat: 33.0014, lng: -7.6167 },
-  'BEN GUERIR': { lat: 32.2333, lng: -7.9500 },
-  'YOUSSOUFIA': { lat: 32.2500, lng: -8.5333 },
-  'DEMNATE': { lat: 31.7333, lng: -7.0000 },
-  'KHENIFRA': { lat: 32.9333, lng: -5.6667 },
-  'MIDELT': { lat: 32.6833, lng: -4.7333 },
-  'ERRACHIDIA': { lat: 31.9311, lng: -4.4247 },
-  'FIGUIG': { lat: 32.1167, lng: -1.2167 },
-  'BOUDENIB': { lat: 32.0500, lng: -3.6000 },
-  'JERADA': { lat: 34.3167, lng: -2.1667 },
-  'GUERCIF': { lat: 34.2333, lng: -3.3500 },
+  'TAFRAOUT': { lat: 29.7167, lng: -8.9833 },
+  'TAN TAN': { lat: 28.4333, lng: -11.1000 },
+  'TANGER': { lat: 35.7673, lng: -5.7998 },
+  'TARFAYA': { lat: 27.9500, lng: -12.9167 },
+  'TAROUDANT': { lat: 30.4703, lng: -8.8769 },
+  'TAROUDANNT': { lat: 30.4703, lng: -8.8769 }, // Variante orthographique
   'TAOURIRT': { lat: 34.4167, lng: -2.9000 },
-  'OUED ZEM': { lat: 32.8667, lng: -6.5667 },
-  'FQUIH BEN SALAH': { lat: 32.5000, lng: -6.7000 },
-  'IFRANE': { lat: 33.5333, lng: -5.1167 },
-  'AZROU': { lat: 33.4333, lng: -5.2167 },
+  'TAZA': { lat: 34.2144, lng: -4.0086 },
   'TEMARA': { lat: 33.9167, lng: -6.9167 },
-  'SALE': { lat: 34.0500, lng: -6.8167 },
-  'MOHAMMEDIA': { lat: 33.6833, lng: -7.3833 }
+  'TETOUAN': { lat: 35.5769, lng: -5.3684 },
+  'TIZNIT': { lat: 29.7167, lng: -9.7167 },
+  'YOUSSOUFIA': { lat: 32.2500, lng: -8.5333 },
+  'ZAGORA': { lat: 30.3333, lng: -5.8333 }
 };
 
 /**

@@ -59,6 +59,7 @@ export async function getCommunes(): Promise<Commune[]> {
       
       return {
         gid: gid,
+        codeCommune: comm.codeCommune || comm.codecommune || '',
         nomCommune: nomCommune,
         typeCommun: typeCommun,
         geom: comm.geom

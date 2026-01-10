@@ -5,6 +5,18 @@ export interface Point {
   coordinates: [number, number]; // [longitude, latitude]
 }
 
+export interface Polygon {
+  type: 'Polygon';
+  coordinates: number[][][]; // Array of linear rings (first is exterior, rest are holes)
+}
+
+export interface MultiPolygon {
+  type: 'MultiPolygon';
+  coordinates: number[][][][]; // Array of polygons
+}
+
+export type Geometry = Point | Polygon | MultiPolygon;
+
 export interface Utilisateur {
   id: number;
   nom: string;
@@ -22,7 +34,7 @@ export interface Commune {
   codeCommune: string;
   nomCommune: string;
   typeCommun: string;
-  geom?: Point;
+  geom?: Point | Polygon | MultiPolygon; // Peut être Point (centroïde) ou Polygon/MultiPolygon (limites)
 }
 
 export interface Category {
