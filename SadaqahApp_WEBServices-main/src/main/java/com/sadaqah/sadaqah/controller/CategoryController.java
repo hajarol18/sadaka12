@@ -64,6 +64,12 @@ public class CategoryController {
 		return categoryService.saveCategory(category);
 	}
 	
+	//Modifier une catégorie
+	@PutMapping("/categorie/{id}")
+	public Category updateCategory(@PathVariable("id") final Long id, @RequestBody Category category) {
+		category.setId(id);
+		return categoryService.saveCategory(category);
+	}
 	
 	@DeleteMapping("/categorie/{id}")
 	public void deleteClient(@PathVariable("id") final Long id) {
