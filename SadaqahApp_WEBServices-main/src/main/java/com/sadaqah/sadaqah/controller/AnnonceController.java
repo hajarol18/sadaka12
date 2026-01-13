@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.sadaqah.sadaqah.model.Annonce;
 import com.sadaqah.sadaqah.model.Category;
@@ -112,7 +113,24 @@ public class AnnonceController {
         return  annonceService.findAnnonceWithinCategorie(id);
     }
 	
-	
+	//upload Annonce image
+	@PostMapping("/upload_annonce_image")
+	public boolean pictureupload(@RequestParam("id") long id, @RequestParam("file") MultipartFile file) {
+		try {
+			System.out.println("[AnnonceController] Upload image annonce ID: " + id);
+			System.out.println("[AnnonceController] Nom fichier: " + (file != null ? file.getOriginalFilename() : "null"));
+			if (file != null) {
+				System.out.println("[AnnonceController] Taille: " + file.getSize());
+			}
+			boolean result = annonceService.pictureupload(id, file);
+			System.out.println("[AnnonceController] Résultat upload: " + result);
+			return result;
+		} catch (Exception e) {
+			System.err.println("[AnnonceController] ERREUR upload image: " + e.getMessage());
+			e.printStackTrace();
+			return false;
+		}
+	}
 	
 	//ajouter une nouvelle annonce
 	@PostMapping ("/annonce")

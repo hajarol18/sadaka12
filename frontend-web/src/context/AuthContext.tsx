@@ -26,6 +26,7 @@ type AuthContextValue = {
     phone: string;
     email: string;
     password: string;
+    imageFile?: File | null;
   }) => Promise<void>;
   logout: () => void;
 };
@@ -299,19 +300,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (payload: { firstName: string; lastName: string; phone: string; email: string; password: string }) => {
+    async (payload: {
+      firstName: string;
+      lastName: string;
+      phone: string;
+      email: string;
+      password: string;
+      imageFile?: File | null;
+    }) => {
       try {
-        // Le backend utilise POST /api/v1/utilisateur avec un body Utilisateur
+        // Étape 1: Créer l'utilisateur d'abord (sans image)
         const res = await api.post('/api/v1/utilisateur', {
           nom: payload.lastName,
           prenom: payload.firstName,
           email: payload.email,
           userName: payload.email, // Utiliser email comme userName
           passWord: payload.password,
-          telephone: payload.phone
+          telephone: payload.phone,
+          photo: '' // Photo vide pour l'instant, sera uploadée après
         });
         
         if (res.data === true || res.status === 200) {
+          // Étape 2: Si une image est fournie, l'uploader séparément
+          if (payload.imageFile) {
+            try {
+              // Se connecter d'abord pour obtenir l'ID utilisateur
+              const loginRes = await api.get('/api/v1/utilisateur/connect', {
+                params: {
+                  userName: payload.email,
+                  passWord: payload.password
+                }
+              });
+              
+              const userId = loginRes.data;
+              
+              if (userId && userId !== 0) {
+                // Uploader l'image avec l'ID utilisateur
+                const formData = new FormData();
+                formData.append('id', userId.toString());
+                formData.append('file', payload.imageFile);
+                
+                // Utiliser l'endpoint d'upload d'image utilisateur
+                // Note: L'endpoint peut être /upload_User_image ou /api/v1/upload_User_image selon la config backend
+                try {
+                  await api.post('/upload_User_image', formData, {
+                    headers: {
+                      'Content-Type': 'multipart/form-data'
+                    }
+                  });
+                } catch (uploadError: any) {
+                  // Si l'endpoint direct ne fonctionne pas, essayer avec le préfixe /api/v1/
+                  if (uploadError?.response?.status === 404) {
+                    await api.post('/api/v1/upload_User_image', formData, {
+                      headers: {
+                        'Content-Type': 'multipart/form-data'
+                      }
+                    });
+                  } else {
+                    throw uploadError;
+                  }
+                }
+              }
+            } catch (uploadError: any) {
+              console.warn('[AuthContext] Erreur upload image (non bloquant):', uploadError);
+              // Ne pas bloquer l'inscription si l'upload échoue
+            }
+          }
+          
           // Créer un token simple après inscription
           const simpleToken = btoa(`0:${payload.email}`);
           setToken(simpleToken);

@@ -1,5 +1,9 @@
 package com.sadaqah.sadaqah.service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -12,9 +16,11 @@ import java.util.Optional;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.locationtech.jts.geom.Point;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.sadaqah.sadaqah.model.Annonce;
 import com.sadaqah.sadaqah.model.Categorie_Famille;
@@ -32,7 +38,100 @@ public class AnnonceService {
 	@Autowired
 	private IFamilleRepo Ifc;
 	
-	
+	//upload image annonce
+	public boolean pictureupload(long id, MultipartFile file) {
+		try {
+			System.out.println("========================================");
+			System.out.println("[AnnonceService] Upload image annonce");
+			System.out.println("========================================");
+			System.out.println("[AnnonceService] ID annonce: " + id);
+			
+			if (file == null) {
+				System.err.println("[AnnonceService] ERREUR: MultipartFile est null");
+				return false;
+			}
+			
+			System.out.println("[AnnonceService] Nom fichier: " + file.getOriginalFilename());
+			System.out.println("[AnnonceService] Taille: " + file.getSize() + " bytes");
+			System.out.println("[AnnonceService] Content-Type: " + file.getContentType());
+			System.out.println("[AnnonceService] Vide: " + file.isEmpty());
+			
+			if (file.isEmpty()) {
+				System.err.println("[AnnonceService] ERREUR: Fichier vide");
+				return false;
+			}
+			
+			if (file.getOriginalFilename() == null || file.getOriginalFilename().isEmpty()) {
+				System.err.println("[AnnonceService] ERREUR: Nom de fichier vide");
+				return false;
+			}
+			
+			// Extraire l'extension du fichier
+			String originalFilename = file.getOriginalFilename();
+			int lastDotIndex = originalFilename.lastIndexOf(".");
+			if (lastDotIndex == -1 || lastDotIndex == originalFilename.length() - 1) {
+				System.err.println("[AnnonceService] ERREUR: Extension non trouvée dans le nom de fichier");
+				return false;
+			}
+			
+			String extension = originalFilename.substring(lastDotIndex + 1);
+			System.out.println("[AnnonceService] Extension détectée: " + extension);
+			
+			// Créer le chemin du fichier
+			String fileName = id + "." + extension;
+			Path targetDir = Paths.get("images_annonce");
+			Path downloadedFile = targetDir.resolve(fileName);
+			
+			System.out.println("[AnnonceService] Répertoire cible: " + targetDir.toAbsolutePath());
+			System.out.println("[AnnonceService] Fichier cible: " + downloadedFile.toAbsolutePath());
+			
+			// Créer le répertoire s'il n'existe pas
+			try {
+				Files.createDirectories(targetDir);
+				System.out.println("[AnnonceService] ✅ Répertoire créé/vérifié: " + targetDir.toAbsolutePath());
+			} catch (IOException e) {
+				System.err.println("[AnnonceService] ERREUR création répertoire: " + e.getMessage());
+				e.printStackTrace();
+				return false;
+			}
+			
+			// Supprimer l'ancien fichier s'il existe
+			try {
+				boolean deleted = Files.deleteIfExists(downloadedFile);
+				if (deleted) {
+					System.out.println("[AnnonceService] Ancien fichier supprimé: " + downloadedFile);
+				}
+			} catch (IOException e) {
+				System.err.println("[AnnonceService] ⚠️ Impossible de supprimer l'ancien fichier: " + e.getMessage());
+			}
+			
+			// Copier le nouveau fichier
+			try {
+				Files.copy(file.getInputStream(), downloadedFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+				System.out.println("[AnnonceService] ✅ Image uploadée avec succès: " + downloadedFile.toAbsolutePath());
+				
+				// Vérifier que le fichier existe vraiment
+				if (Files.exists(downloadedFile)) {
+					long fileSize = Files.size(downloadedFile);
+					System.out.println("[AnnonceService] ✅ Fichier vérifié - Taille: " + fileSize + " bytes");
+				} else {
+					System.err.println("[AnnonceService] ⚠️ Fichier créé mais non trouvé après écriture!");
+				}
+				
+				return true;
+			} catch (IOException e) {
+				System.err.println("[AnnonceService] ERREUR copie fichier: " + e.getMessage());
+				e.printStackTrace();
+				return false;
+			}
+			
+		} catch (Exception e) {
+			LoggerFactory.getLogger(this.getClass()).error("[AnnonceService] ERREUR upload image annonce (générale)", e);
+			System.err.println("[AnnonceService] ERREUR upload image (générale): " + e.getMessage());
+			e.printStackTrace();
+			return false;
+		}
+	}
 	
 	//toutes les annonces approuvées 
 	public List<Annonce> findAnnonce() {

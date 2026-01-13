@@ -1,7 +1,12 @@
-import { Button, Form, Input, Typography, message, Row, Col, Card, Alert, Space } from 'antd';
+import { Button, Form, Input, Typography, message, Row, Col, Card, Alert, Space, Upload, Modal } from 'antd';
+import type { UploadFile } from 'antd/es/upload';
+import { PlusOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+
+const MAX_UPLOAD_SIZE_MB = 2;
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg'];
 
 export default function Register() {
   const { register } = useAuth();
@@ -9,20 +14,61 @@ export default function Register() {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState('');
+  const [previewTitle, setPreviewTitle] = useState('');
+
+  const handlePreview = async (file: UploadFile) => {
+    if (!file.url && !file.preview) {
+      file.preview = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file.originFileObj as Blob);
+        reader.onload = () => resolve(reader.result as string);
+      });
+    }
+    setPreviewImage(file.url || (file.preview as string));
+    setPreviewOpen(true);
+    setPreviewTitle(file.name || 'Aperçu de l\'image');
+  };
+
+  const handleUploadChange = ({ fileList: newFileList }: { fileList: UploadFile[] }) => {
+    setFileList(newFileList);
+  };
+
+  const beforeUpload = (file: File) => {
+    const isAllowedType = ALLOWED_IMAGE_TYPES.includes(file.type);
+    if (!isAllowedType) {
+      message.error('Format non autorisé! Formats acceptés: PNG, JPG, JPEG.');
+      return false;
+    }
+    const isUnderLimit = file.size / 1024 / 1024 < MAX_UPLOAD_SIZE_MB;
+    if (!isUnderLimit) {
+      message.error(`L'image doit faire moins de ${MAX_UPLOAD_SIZE_MB}MB.`);
+      return false;
+    }
+    return false; // Empêcher l'upload automatique, on gère l'upload manuellement
+  };
 
   const onFinish = async (values: any) => {
     try {
       setSubmitting(true);
       setError(null);
+      
+      const imageFile = fileList[0]?.originFileObj as File | undefined;
+      
       await register({
         firstName: values.firstName,
         lastName: values.lastName,
         phone: values.phone,
         email: values.email,
-        password: values.password
+        password: values.password,
+        imageFile: imageFile || null
       });
+      
       message.success('Inscription réussie! Vous allez être redirigé vers la page d\'accueil.');
       form.resetFields();
+      setFileList([]);
       // Redirection après un court délai pour que l'utilisateur puisse voir le message
       setTimeout(() => navigate('/'), 1500);
     } catch (e: any) {
@@ -92,10 +138,11 @@ export default function Register() {
               name="phone" 
               rules={[
                 { required: true, message: 'Veuillez saisir votre numéro de téléphone' },
-                { pattern: /^[0-9+\s()-]{8,15}$/, message: 'Format de téléphone invalide' }
+                { pattern: /^0\d{9}$/, message: 'Le numéro doit être au format marocain (ex: 0612345678)' }
               ]}
+              extra="Format: 0XXXXXXXXX (10 chiffres, commence par 0)"
             >
-              <Input placeholder="Téléphone" maxLength={15} />
+              <Input placeholder="0612345678" maxLength={10} />
             </Form.Item>
             
             <Form.Item 
@@ -106,7 +153,26 @@ export default function Register() {
                 { type: 'email', message: 'Format d\'email invalide' }
               ]}
             >
-              <Input placeholder="Email" />
+              <Input placeholder="exemple@email.com" />
+            </Form.Item>
+
+            <Form.Item
+              label="Confirmer l'email"
+              name="confirmEmail"
+              dependencies={['email']}
+              rules={[
+                { required: true, message: 'Veuillez confirmer votre email' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('email') === value) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(new Error('Les emails ne correspondent pas'));
+                  }
+                })
+              ]}
+            >
+              <Input placeholder="Confirmer votre email" />
             </Form.Item>
             
             <Form.Item 
@@ -133,7 +199,9 @@ export default function Register() {
                 { required: true, message: 'Veuillez confirmer votre mot de passe' },
                 ({ getFieldValue }) => ({
                   validator(_, value) {
-                    if (!value || getFieldValue('password') === value) return Promise.resolve();
+                    if (!value || getFieldValue('password') === value) {
+                      return Promise.resolve();
+                    }
                     return Promise.reject(new Error('Les mots de passe ne correspondent pas'));
                   }
                 })
@@ -141,6 +209,40 @@ export default function Register() {
             >
               <Input.Password placeholder="Confirmer le mot de passe" />
             </Form.Item>
+
+            <Form.Item
+              label="Photo de profil (optionnel)"
+              name="profileImage"
+              valuePropName="fileList"
+              getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
+              extra="Formats acceptés: PNG, JPG, JPEG. Taille maximale: 2MB"
+            >
+              <Upload
+                listType="picture-card"
+                accept=".png,.jpg,.jpeg"
+                fileList={fileList}
+                maxCount={1}
+                onPreview={handlePreview}
+                onChange={handleUploadChange}
+                beforeUpload={beforeUpload}
+              >
+                {fileList.length >= 1 ? null : (
+                  <div>
+                    <PlusOutlined />
+                    <div style={{ marginTop: 8 }}>Ajouter une photo</div>
+                  </div>
+                )}
+              </Upload>
+            </Form.Item>
+
+            <Modal
+              open={previewOpen}
+              title={previewTitle}
+              footer={null}
+              onCancel={() => setPreviewOpen(false)}
+            >
+              <img alt="Prévisualisation" style={{ width: '100%' }} src={previewImage} />
+            </Modal>
             
             <Form.Item style={{ marginBottom: 12 }}>
               <Button 
