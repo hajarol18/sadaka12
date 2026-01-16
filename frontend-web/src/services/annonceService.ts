@@ -213,10 +213,10 @@ export async function createAnnonce(data: {
   params.append('commune', data.commune.toString());
   params.append('donnateur', data.donnateur.toString());
   params.append('photo', data.photo || '');
+  params.append('quatite', (data.quatite || 1).toString());
   // Pour les listes, Spring attend des paramètres répétés
   params.append('coordinates', data.coordinates[0].toString());
   params.append('coordinates', data.coordinates[1].toString());
-  // Note: quantite est géré par défaut à 1 dans le backend (voir IAnnonce.addAnnonce)
 
   console.log('[createAnnonce] Paramètres envoyés:', params.toString());
   console.log('[createAnnonce] Quantité (quatite):', data.quatite || 1);
@@ -229,6 +229,11 @@ export async function createAnnonce(data: {
     });
     console.log('[createAnnonce] Réponse du backend:', response.data);
     console.log('[createAnnonce] Status:', response.status);
+    
+    // Si la réponse contient success: true, retourner l'ID ou 1
+    if (response.data && typeof response.data === 'object' && response.data.success) {
+      return response.data.id || 1;
+    }
     return response.data;
   } catch (error: any) {
     console.error('[createAnnonce] Erreur lors de la création:', error);
@@ -237,6 +242,15 @@ export async function createAnnonce(data: {
       response: error?.response?.data,
       status: error?.response?.status
     });
+    
+    // Si c'est une erreur de cooldown (429), propager le message
+    if (error?.response?.status === 429) {
+      const errorMessage = error?.response?.data?.message || 'Vous êtes en cooldown. Réessayez plus tard.';
+      const customError = new Error(errorMessage);
+      (customError as any).status = 429;
+      throw customError;
+    }
+    
     throw error;
   }
 }

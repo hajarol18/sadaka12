@@ -164,18 +164,30 @@ export default function CreateAnnouncement() {
       }
       
       console.log('[CreateAnnouncement] Appel createAnnonce...');
-      const result = await createAnnonce({
-        coordinates: [values.longitude, values.latitude], // [longitude, latitude]
-        titre: values.titre,
-        desc: values.description || '',
-        categorie: values.categorie,
-        commune: values.commune,
-        donnateur: userId,
-        photo: photoUrl, // URL ou vide si upload direct
-        quatite: values.quatite || 1
-      });
-      
-      console.log('[CreateAnnouncement] ✅ Annonce créée, résultat:', result);
+      let result;
+      try {
+        result = await createAnnonce({
+          coordinates: [values.longitude, values.latitude], // [longitude, latitude]
+          titre: values.titre,
+          desc: values.description || '',
+          categorie: values.categorie,
+          commune: values.commune,
+          donnateur: userId,
+          photo: photoUrl, // URL ou vide si upload direct
+          quatite: values.quatite || 1
+        });
+        console.log('[CreateAnnouncement] ✅ Annonce créée, résultat:', result);
+      } catch (error: any) {
+        // Gérer les erreurs de cooldown (429)
+        if (error?.status === 429 || error?.response?.status === 429) {
+          const errorMessage = error?.message || error?.response?.data?.message || 'Vous êtes en cooldown. Réessayez plus tard.';
+          message.error(errorMessage);
+          setSubmitting(false);
+          return;
+        }
+        // Relancer les autres erreurs
+        throw error;
+      }
       
       // Si une image a été uploadée, l'uploader séparément après création
       const imageFile = fileList[0]?.originFileObj as File | undefined;
@@ -416,14 +428,34 @@ export default function CreateAnnouncement() {
                 </Text>
               } 
               name="quatite" 
-              rules={[{ required: true, message: 'La quantité est requise' }]}
-              tooltip={{ title: 'Nombre d\'unités disponibles', icon: <InfoCircleOutlined /> }}
+              rules={[
+                { required: true, message: 'La quantité est requise' },
+                { 
+                  type: 'number', 
+                  min: 1, 
+                  message: 'La quantité doit être au moins 1' 
+                },
+                {
+                  validator: (_, value) => {
+                    if (!value || value <= 0) {
+                      return Promise.reject(new Error('La quantité doit être supérieure à 0'));
+                    }
+                    return Promise.resolve();
+                  }
+                }
+              ]}
+              tooltip={{ title: 'Nombre d\'unités disponibles (minimum 1)', icon: <InfoCircleOutlined /> }}
             >
               <InputNumber 
                 min={1} 
                 style={{ width: '100%' }} 
                 placeholder="Ex: 10"
                 size="large"
+                parser={(value) => {
+                  // Empêcher la saisie de 0
+                  const parsed = parseInt(value?.replace(/\D/g, '') || '0', 10);
+                  return parsed <= 0 ? 1 : parsed;
+                }}
               />
             </Form.Item>
 

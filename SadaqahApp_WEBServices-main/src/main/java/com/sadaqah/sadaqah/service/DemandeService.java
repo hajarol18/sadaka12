@@ -1,5 +1,8 @@
 package com.sadaqah.sadaqah.service;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +16,8 @@ import com.sadaqah.sadaqah.repo.IAnnonce;
 
 @Service
 public class DemandeService {
+	private static final int COOLDOWN_HOURS = 24;
+	
 	@Autowired
 	private IDemande demandeRepo;
 	
@@ -37,6 +42,28 @@ public class DemandeService {
 		
 
 	
+	// Valider le cooldown pour la création de demandes
+	private void validateDemandeCooldown(Long demandeur) {
+		Date lastDemandeDate = demandeRepo.findLastDemandeDateByDemandeur(demandeur);
+		if (lastDemandeDate == null) {
+			return;
+		}
+		Instant lastInstant = lastDemandeDate.toInstant();
+		Instant now = Instant.now();
+		Duration sinceLast = Duration.between(lastInstant, now);
+		if (sinceLast.toHours() < COOLDOWN_HOURS) {
+			Duration remaining = Duration.ofHours(COOLDOWN_HOURS).minus(sinceLast);
+			long hours = remaining.toHours();
+			long minutes = remaining.minusHours(hours).toMinutes();
+			String message = String.format(
+				"Vous êtes en cooldown: une demande par jour. Réessayez dans %dh%02dm.",
+				hours,
+				minutes
+			);
+			throw new IllegalStateException(message);
+		}
+	}
+	
 	//ajouter une demande 
 	// IMPORTANT: Selon le cahier des charges:
 	// - Un utilisateur peut être donateur ET bénéficiaire (même compte utilisateur)
@@ -44,6 +71,9 @@ public class DemandeService {
 	// - Les admins NE PEUVENT PAS faire de demandes (conflit d'intérêts)
 	//   Note: Le blocage des admins se fait côté frontend car les tables Admin et Utilisateur sont séparées
 	public boolean save_annonce(Long annonce, Long demandeur) {
+		// Valider le cooldown avant de créer la demande
+		validateDemandeCooldown(demandeur);
+		
 		boolean result = false;
 		try {
 			// Vérifier que l'annonce existe

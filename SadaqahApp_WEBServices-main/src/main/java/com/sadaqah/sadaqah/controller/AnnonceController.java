@@ -15,6 +15,8 @@ import java.util.Optional;
 import org.json.JSONArray;
 import org.locationtech.jts.geom.Point;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -132,14 +134,67 @@ public class AnnonceController {
 		}
 	}
 	
+	// Servir l'image d'une annonce
+	@GetMapping("/annonce/{id}/image")
+	public ResponseEntity<?> getAnnonceImage(@PathVariable("id") Long id) {
+		try {
+			System.out.println("[AnnonceController] Récupération image annonce ID: " + id);
+			java.nio.file.Path imagePath = annonceService.getAnnonceImagePath(id);
+			
+			if (imagePath == null || !java.nio.file.Files.exists(imagePath)) {
+				System.out.println("[AnnonceController] Image non trouvée pour annonce ID: " + id);
+				return ResponseEntity.notFound().build();
+			}
+			
+			byte[] imageBytes = java.nio.file.Files.readAllBytes(imagePath);
+			String contentType = java.nio.file.Files.probeContentType(imagePath);
+			if (contentType == null) {
+				contentType = "image/jpeg"; // Par défaut
+			}
+			
+			System.out.println("[AnnonceController] ✅ Image servie: " + imagePath + " (type: " + contentType + ", taille: " + imageBytes.length + " bytes)");
+			return ResponseEntity.ok()
+				.contentType(org.springframework.http.MediaType.parseMediaType(contentType))
+				.body(imageBytes);
+		} catch (Exception e) {
+			System.err.println("[AnnonceController] ERREUR récupération image: " + e.getMessage());
+			e.printStackTrace();
+			return ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).build();
+		}
+	}
+	
 	//ajouter une nouvelle annonce
 	@PostMapping ("/annonce")
-	public int addAnnonce(@RequestParam("coordinates") List<Double> coordinates,@RequestParam("titre") String titre,
+	public ResponseEntity<?> addAnnonce(@RequestParam("coordinates") List<Double> coordinates,@RequestParam("titre") String titre,
 			@RequestParam("desc") String desc, @RequestParam("categorie") Long categorie, @RequestParam("commune") Long commune,
-			@RequestParam("donnateur") Long donnateur,@RequestParam("photo") String photo) {
-         annonceService.addAnnonce(coordinates,titre,desc, categorie, commune,donnateur,photo);
-         return 1;
-	
+			@RequestParam("donnateur") Long donnateur,@RequestParam("photo") String photo, @RequestParam(value = "quatite", defaultValue = "1") Long quatite) {
+		try {
+			boolean result = annonceService.addAnnonce(coordinates, titre, desc, categorie, commune, donnateur, photo, quatite);
+			if (result) {
+				Map<String, Object> response = new HashMap<>();
+				response.put("success", true);
+				response.put("message", "Annonce créée avec succès");
+				return ResponseEntity.ok(response);
+			} else {
+				Map<String, Object> response = new HashMap<>();
+				response.put("success", false);
+				response.put("message", "Échec de la création de l'annonce");
+				return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+			}
+		} catch (IllegalStateException e) {
+			// Cooldown activé
+			Map<String, Object> response = new HashMap<>();
+			response.put("success", false);
+			response.put("message", e.getMessage());
+			return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+		} catch (Exception e) {
+			System.err.println("[AnnonceController] Erreur lors de la création de l'annonce: " + e.getMessage());
+			e.printStackTrace();
+			Map<String, Object> response = new HashMap<>();
+			response.put("success", false);
+			response.put("message", "Erreur lors de la création de l'annonce: " + e.getMessage());
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+		}
 	}
 	
 	//modifier une annonce

@@ -30,17 +30,37 @@ export async function getDemandesByUser(userId: number): Promise<Demande[]> {
  */
 export async function getDemandesByAnnonce(annonceId: number): Promise<Demande[]> {
   try {
+    console.log(`[getDemandesByAnnonce] ⚠️ Appel API pour annonce ${annonceId}`);
     const response = await api.get(`${BASE_URL}/demandes/annonce/${annonceId}`);
+    console.log(`[getDemandesByAnnonce] ⚠️ Réponse brute:`, response);
     let data = response.data;
+    console.log(`[getDemandesByAnnonce] ⚠️ response.data:`, data);
     
     // S'assurer que c'est un tableau
     if (data && typeof data === 'object' && !Array.isArray(data)) {
       if ('value' in data) {
         data = data.value;
+        console.log(`[getDemandesByAnnonce] ⚠️ Données extraites de value:`, data);
       }
     }
     
-    return Array.isArray(data) ? data : [];
+    const result = Array.isArray(data) ? data : [];
+    console.log(`[getDemandesByAnnonce] ⚠️ Résultat final:`, result.length, 'demandes');
+    
+    // Log détaillé de chaque demande
+    result.forEach((d: any, index: number) => {
+      console.log(`[getDemandesByAnnonce] ⚠️ ===== DEMANDE ${index + 1} =====`);
+      console.log(`[getDemandesByAnnonce] ⚠️ ID:`, d.id);
+      console.log(`[getDemandesByAnnonce] ⚠️ Status brut:`, d.status);
+      console.log(`[getDemandesByAnnonce] ⚠️ Status type:`, typeof d.status);
+      console.log(`[getDemandesByAnnonce] ⚠️ quantiteAssignee:`, d.quantiteAssignee);
+      console.log(`[getDemandesByAnnonce] ⚠️ quantite_assignee:`, d.quantite_assignee);
+      console.log(`[getDemandesByAnnonce] ⚠️ Tous les champs:`, Object.keys(d));
+      console.log(`[getDemandesByAnnonce] ⚠️ Objet complet:`, JSON.stringify(d, null, 2));
+      console.log(`[getDemandesByAnnonce] ⚠️ ====================`);
+    });
+    
+    return result;
   } catch (error: any) {
     console.error('[getDemandesByAnnonce] Erreur:', error);
     return [];
@@ -77,6 +97,13 @@ export async function createDemande(annonceId: number, userId: number): Promise<
     }
   } catch (error: any) {
     console.error('[createDemande] Erreur:', error);
+    // Si l'erreur est de cooldown (429 Too Many Requests)
+    if (error?.response?.status === 429) {
+      const errorMessage = error?.response?.data?.message || 'Vous êtes en cooldown. Réessayez plus tard.';
+      const customError = new Error(errorMessage);
+      (customError as any).status = 429;
+      throw customError;
+    }
     // Si l'erreur est du backend (400 Bad Request)
     if (error?.response?.status === 400 && error?.response?.data?.message) {
       throw new Error(error.response.data.message);

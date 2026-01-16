@@ -1,5 +1,6 @@
 package com.sadaqah.sadaqah.repo;
 
+import java.util.Date;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -31,4 +32,8 @@ public interface IDemande extends JpaRepository<Demande,Long>{
 	@Transactional
 	@Query(value="update demande set status='APPROVED', quantite_assignee=:quantite where id=:idDemande",nativeQuery=true)
 	int assignerQuantite(@Param("idDemande") Long idDemande, @Param("quantite") Long quantite);
+	
+	// Trouver la date de la dernière demande créée par un demandeur (pour cooldown)
+	@Query(value="SELECT MAX(date) FROM demande WHERE demandeur_id = :demandeur", nativeQuery = true)
+	Date findLastDemandeDateByDemandeur(@Param("demandeur") Long demandeur);
 }

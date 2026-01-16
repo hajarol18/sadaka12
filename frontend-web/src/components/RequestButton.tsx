@@ -100,8 +100,15 @@ export default function RequestButton({ annonce, onSuccess }: RequestButtonProps
       }
     } catch (error: any) {
       console.error('[RequestButton] Erreur création demande:', error);
-      const errorMessage = error?.message || error?.response?.data?.message || 'Erreur lors de l\'envoi de la demande';
-      message.error(errorMessage);
+      // Gérer les erreurs de cooldown (429)
+      if (error?.status === 429 || error?.response?.status === 429) {
+        const errorMessage = error?.message || error?.response?.data?.message || 'Vous êtes en cooldown. Réessayez plus tard.';
+        message.error(errorMessage);
+        setHasRecent(true); // Bloquer après cooldown
+      } else {
+        const errorMessage = error?.message || error?.response?.data?.message || 'Erreur lors de l\'envoi de la demande';
+        message.error(errorMessage);
+      }
     } finally {
       setLoading(false);
     }

@@ -18,6 +18,20 @@ export default function Register() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
   const [previewTitle, setPreviewTitle] = useState('');
+  
+  // Captcha arithmétique
+  const [captcha, setCaptcha] = useState(() => {
+    const first = Math.floor(Math.random() * 9) + 1;
+    const second = Math.floor(Math.random() * 9) + 1;
+    return { first, second };
+  });
+
+  const refreshCaptcha = () => {
+    const first = Math.floor(Math.random() * 9) + 1;
+    const second = Math.floor(Math.random() * 9) + 1;
+    setCaptcha({ first, second });
+    form.setFieldsValue({ captchaAnswer: '' });
+  };
 
   const handlePreview = async (file: UploadFile) => {
     if (!file.url && !file.preview) {
@@ -233,6 +247,37 @@ export default function Register() {
                   </div>
                 )}
               </Upload>
+            </Form.Item>
+
+            <Form.Item
+              label="Captcha"
+              name="captchaAnswer"
+              rules={[
+                { required: true, message: 'Veuillez résoudre le captcha' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    const expected = captcha.first + captcha.second;
+                    const numericValue = parseInt(value, 10);
+                    if (!value) {
+                      return Promise.reject(new Error('Veuillez résoudre le captcha'));
+                    }
+                    if (isNaN(numericValue) || numericValue !== expected) {
+                      return Promise.reject(new Error('Captcha incorrect, veuillez réessayer'));
+                    }
+                    return Promise.resolve();
+                  }
+                })
+              ]}
+            >
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Input
+                  placeholder={`Combien font ${captcha.first} + ${captcha.second} ?`}
+                  inputMode="numeric"
+                />
+                <Button type="link" onClick={refreshCaptcha} style={{ padding: 0 }}>
+                  Générer un nouveau captcha
+                </Button>
+              </Space>
             </Form.Item>
 
             <Modal

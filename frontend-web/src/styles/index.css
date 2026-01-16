@@ -80,3 +80,13 @@ body {
 .custom-marker .marker-container > div:last-child {
   pointer-events: none;
 }
+
+/* Style pour les annonces épuisées dans l'admin */
+.annonce-epuisee {
+  background-color: #fafafa !important;
+  opacity: 0.7;
+}
+
+.annonce-epuisee:hover {
+  background-color: #f0f0f0 !important;
+}

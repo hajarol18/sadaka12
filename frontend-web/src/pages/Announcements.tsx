@@ -1,4 +1,4 @@
-import { Button, Card, Col, DatePicker, Drawer, Input, Row, Select, Table, Tag, message, Divider } from 'antd';
+import { Button, Card, Col, DatePicker, Drawer, Image, Input, Row, Select, Table, Tag, message, Divider } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { MailOutlined, PhoneOutlined, UserOutlined } from '@ant-design/icons';
 import { getAnnonces, getAnnoncesForFilter } from '../services/annonceService';
@@ -22,6 +22,38 @@ export default function Announcements() {
   const [communeIds, setCommuneIds] = useState<number[]>([]);
   const [dateRange, setDateRange] = useState<any>();
   const [selected, setSelected] = useState<Annonce | null>(null);
+
+  // Fonction pour résoudre l'URL de la photo
+  const resolvePhotoUrl = (photo?: string, annonceId?: number) => {
+    if (!photo) {
+      // Si pas de photo mais qu'on a un ID, essayer l'endpoint par défaut
+      if (annonceId) {
+        return `/api/v1/annonce/${annonceId}/image`;
+      }
+      return '';
+    }
+    // Si c'est déjà une URL complète (http/https/data)
+    if (photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('data:')) {
+      return photo;
+    }
+    // Si c'est un chemin relatif qui commence par /api/v1/annonce, le garder tel quel
+    if (photo.startsWith('/api/v1/annonce/')) {
+      return photo;
+    }
+    // Sinon, construire l'URL avec l'ID si disponible
+    if (annonceId && !photo.startsWith('/')) {
+      return `/api/v1/annonce/${annonceId}/image`;
+    }
+    // Si c'est un chemin relatif, le garder
+    if (photo.startsWith('/')) {
+      return photo;
+    }
+    // Par défaut, utiliser l'endpoint avec l'ID
+    if (annonceId) {
+      return `/api/v1/annonce/${annonceId}/image`;
+    }
+    return '';
+  };
 
   // Charger les données initiales
   useEffect(() => {
@@ -102,6 +134,23 @@ export default function Announcements() {
         return annonceDate >= startDate && annonceDate <= endDate;
       });
     }
+
+    // Filtre: Afficher seulement les annonces approuvées et avec quantité disponible
+    // Note: Pour une détection précise des annonces épuisées, il faudrait calculer la quantité disponible
+    // en soustrayant les quantités attribuées aux demandes approuvées. Pour l'instant, on filtre simplement
+    // les annonces avec quatite = 0 ou null. Une amélioration future serait de calculer cela côté backend.
+    filtered = filtered.filter((a) => {
+      // Exclure les annonces non approuvées
+      if (a.status !== 'approuvée') {
+        return false;
+      }
+      // Exclure les annonces avec quantité = 0 ou null (épuisées ou invalides)
+      const quantite = a.quatite || 0;
+      if (quantite <= 0) {
+        return false;
+      }
+      return true;
+    });
 
     setFilteredData(filtered);
     console.log('[Announcements] Filtres appliqués:', {
@@ -218,6 +267,27 @@ export default function Announcements() {
             emptyText: loading ? 'Chargement...' : 'Aucune annonce trouvée. Vérifiez que le backend est démarré.'
           }}
           columns={[
+            {
+              title: 'Photo',
+              dataIndex: 'photo',
+              width: 90,
+              render: (photo: string | undefined, record: Annonce) => {
+                const photoUrl = resolvePhotoUrl(photo || record.photo, record.id);
+                if (!photoUrl) {
+                  return null; // Ne rien afficher si pas de photo
+                }
+                return (
+                  <Image
+                    src={photoUrl}
+                    alt={record.titre || 'Photo annonce'}
+                    width={64}
+                    height={64}
+                    style={{ objectFit: 'cover', borderRadius: 6 }}
+                    preview={{ mask: 'Aperçu' }}
+                  />
+                );
+              }
+            },
             { 
               title: 'Titre', 
               dataIndex: 'titre',
@@ -250,15 +320,6 @@ export default function Announcements() {
                 month: 'long',
                 day: 'numeric',
               })
-            },
-            {
-              title: 'Statut',
-              dataIndex: 'status',
-              render: (status: string) => (
-                <Tag color={getStatusColor(status)}>
-                  {getStatusLabel(status)}
-                </Tag>
-              )
             },
             {
               title: 'Actions',
@@ -304,12 +365,7 @@ export default function Announcements() {
                   minute: '2-digit',
                 })}
               </div>
-              <div style={{ marginBottom: 8 }}>
-                <strong style={{ color: '#52c41a' }}>Statut:</strong>
-                <Tag color={getStatusColor(selected.status)} style={{ marginLeft: 8 }}>
-                  {getStatusLabel(selected.status)}
-                </Tag>
-              </div>
+              {/* Le statut n'est pas affiché car toutes les annonces affichées sont approuvées */}
             </div>
             {selected.description && (
               <div>
@@ -327,6 +383,19 @@ export default function Announcements() {
                 >
                   {selected.description}
                 </p>
+              </div>
+            )}
+            {resolvePhotoUrl(selected.photo, selected.id) && (
+              <div>
+                <strong style={{ color: '#52c41a', display: 'block', marginBottom: 8 }}>
+                  Photo de l'annonce:
+                </strong>
+                <Image
+                  src={resolvePhotoUrl(selected.photo, selected.id)}
+                  alt={selected.titre || 'Photo annonce'}
+                  style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 8 }}
+                  preview={{ mask: 'Aperçu' }}
+                />
               </div>
             )}
             {selected.donnateur && (

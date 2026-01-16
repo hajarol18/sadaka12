@@ -6,6 +6,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -33,6 +35,8 @@ import com.sadaqah.sadaqah.utils.Annonce_Perso;
 
 @Service
 public class AnnonceService {
+	private static final int COOLDOWN_HOURS = 24;
+	
 	@Autowired
 	private IAnnonce annonceRepo; 
 	@Autowired
@@ -114,6 +118,15 @@ public class AnnonceService {
 				if (Files.exists(downloadedFile)) {
 					long fileSize = Files.size(downloadedFile);
 					System.out.println("[AnnonceService] ✅ Fichier vérifié - Taille: " + fileSize + " bytes");
+					
+					// Mettre à jour le champ photo dans la base de données avec l'URL de l'endpoint
+					String photoUrl = "/api/v1/annonce/" + id + "/image";
+					int updateResult = annonceRepo.updateAnnoncePhoto(id, photoUrl);
+					if (updateResult > 0) {
+						System.out.println("[AnnonceService] ✅ Champ photo mis à jour dans la base: " + photoUrl);
+					} else {
+						System.err.println("[AnnonceService] ⚠️ Aucune ligne mise à jour pour le champ photo (ID: " + id + ")");
+					}
 				} else {
 					System.err.println("[AnnonceService] ⚠️ Fichier créé mais non trouvé après écriture!");
 				}
@@ -130,6 +143,25 @@ public class AnnonceService {
 			System.err.println("[AnnonceService] ERREUR upload image (générale): " + e.getMessage());
 			e.printStackTrace();
 			return false;
+		}
+	}
+	
+	// Récupérer le chemin de l'image d'une annonce
+	public Path getAnnonceImagePath(Long id) {
+		try {
+			Path targetDir = Paths.get("images_annonce");
+			// Chercher les extensions possibles
+			String[] extensions = {"jpg", "jpeg", "png", "gif"};
+			for (String ext : extensions) {
+				Path imagePath = targetDir.resolve(id + "." + ext);
+				if (Files.exists(imagePath)) {
+					return imagePath;
+				}
+			}
+			return null;
+		} catch (Exception e) {
+			System.err.println("[AnnonceService] ERREUR récupération chemin image: " + e.getMessage());
+			return null;
 		}
 	}
 	
@@ -190,15 +222,44 @@ public class AnnonceService {
 	}
 	
 
+	// Valider le cooldown pour la création d'annonces
+	private void validateAnnonceCooldown(Long donnateur) {
+		Date lastAnnonceDate = annonceRepo.findLastAnnonceDateByDonnateur(donnateur);
+		if (lastAnnonceDate == null) {
+			return;
+		}
+		Instant lastInstant = lastAnnonceDate.toInstant();
+		Instant now = Instant.now();
+		Duration sinceLast = Duration.between(lastInstant, now);
+		if (sinceLast.toHours() < COOLDOWN_HOURS) {
+			Duration remaining = Duration.ofHours(COOLDOWN_HOURS).minus(sinceLast);
+			long hours = remaining.toHours();
+			long minutes = remaining.minusHours(hours).toMinutes();
+			String message = String.format(
+				"Vous êtes en cooldown: une annonce par jour. Réessayez dans %dh%02dm.",
+				hours,
+				minutes
+			);
+			throw new IllegalStateException(message);
+		}
+	}
+	
 	//ajouter une nouvelle annonce service
 	public boolean addAnnonce(List<Double> coordinates, String titre, String desc, Long categorie, Long commune,
-			Long donnateur,String photo) {
+			Long donnateur,String photo, Long quatite) {
+		// Valider le cooldown avant de créer l'annonce
+		validateAnnonceCooldown(donnateur);
+		
 		boolean result=true; 
 		double userLongitude = coordinates.get(0);
         double userLatitude = coordinates.get(1);
         Long idMax=annonceRepo.maxID();
         if (idMax == null) {
         	idMax = 0L;
+        }
+        // Valeur par défaut si quatite est null ou <= 0
+        if (quatite == null || quatite <= 0) {
+        	quatite = 1L;
         }
         Calendar cal = Calendar.getInstance();
         Date date=cal.getTime();
@@ -213,12 +274,13 @@ public class AnnonceService {
         System.out.println("  - categorie: " + categorie);
         System.out.println("  - commune: " + commune);
         System.out.println("  - donnateur: " + donnateur);
+        System.out.println("  - quatite: " + quatite);
         System.out.println("  - longitude: " + userLongitude);
         System.out.println("  - latitude: " + userLatitude);
         System.out.println("  - photo: " + photo);
         
         try {
-        	int insertResult = annonceRepo.addAnnonce(idMax+1,titre, desc,date, categorie,commune, donnateur,userLongitude,userLatitude,photo);
+        	int insertResult = annonceRepo.addAnnonce(idMax+1,titre, desc,date, categorie,commune, donnateur,userLongitude,userLatitude,photo,quatite);
         	System.out.println("[AnnonceService] Résultat INSERT (rows affected): " + insertResult);
         	
         	if (insertResult > 0) {

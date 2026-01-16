@@ -172,7 +172,7 @@ export default function MapWithList() {
   const [currentZoom, setCurrentZoom] = useState<number>(6);
   const [hoveredCommuneId, setHoveredCommuneId] = useState<number | null>(null);
   const [selectedCommuneId, setSelectedCommuneId] = useState<number | null>(null);
-  const [mapBaseLayer, setMapBaseLayer] = useState<string>('esri'); // 'esri', 'osm', 'cartodb'
+  const [mapBaseLayer, setMapBaseLayer] = useState<string>('esri'); // 'esri', 'cartodb' (OSM retiré pour préserver l'unité du Maroc)
   
   // Filtres communs (affectent carte ET liste)
   const [search, setSearch] = useState<string | undefined>();
@@ -295,6 +295,24 @@ export default function MapWithList() {
       }
     }
 
+    // Filtre: Afficher seulement les annonces approuvées et avec quantité disponible
+    // Note: Pour une détection précise des annonces épuisées, il faudrait calculer la quantité disponible
+    // en soustrayant les quantités attribuées aux demandes approuvées. Pour l'instant, on filtre simplement
+    // les annonces avec quatite = 0 ou null. Une amélioration future serait de calculer cela côté backend.
+    filtered = filtered.filter((a) => {
+      // Exclure les annonces non approuvées
+      if (a.status !== 'approuvée') {
+        return false;
+      }
+      // Exclure les annonces avec quantité = 0 ou null (épuisées ou invalides)
+      const quantite = a.quatite || 0;
+      if (quantite <= 0) {
+        return false;
+      }
+      return true;
+    });
+    console.log('[MapWithList] Après filtre statut approuvée et quantité:', filtered.length);
+
     // Filtrer les annonces avec coordonnées valides
     filtered = filtered.filter(a => {
       const coords = extractCoordinates(a);
@@ -403,7 +421,7 @@ export default function MapWithList() {
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
       {/* CARTE (GAUCHE) */}
-      <div style={{ flex: 1, position: 'relative', borderRight: '1px solid #f0f0f0' }}>
+      <div style={{ flex: '0 0 calc(100% - 650px)', position: 'relative', borderRight: '1px solid #f0f0f0', minWidth: 0 }}>
         {/* Légende des catégories */}
         <Card
           size="small"
@@ -506,7 +524,6 @@ export default function MapWithList() {
               style={{ width: '100%', fontSize: 11 }}
               options={[
                 { label: 'ESRI (Par défaut)', value: 'esri' },
-                { label: 'OpenStreetMap', value: 'osm' },
                 { label: 'CartoDB (Clair)', value: 'cartodb' }
               ]}
             />
@@ -540,12 +557,6 @@ export default function MapWithList() {
             <TileLayer
               attribution='&copy; <a href="https://www.esri.com/">ESRI</a>'
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
-            />
-          )}
-          {mapBaseLayer === 'osm' && (
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
           )}
           {mapBaseLayer === 'cartodb' && (
@@ -767,7 +778,7 @@ export default function MapWithList() {
       </div>
 
       {/* LISTE (DROITE) */}
-      <div style={{ width: 500, display: 'flex', flexDirection: 'column', background: '#fff' }}>
+      <div style={{ width: 650, display: 'flex', flexDirection: 'column', background: '#fff', flexShrink: 0 }}>
         {/* Filtres */}
         <Card 
           size="small" 

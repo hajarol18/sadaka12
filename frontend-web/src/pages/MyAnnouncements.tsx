@@ -1,17 +1,22 @@
-import { Card, Table, Tag, Button, Empty, Typography, Space, Modal, InputNumber, Descriptions, message, Divider, Popconfirm, Select, Badge } from 'antd';
+import { Card, Table, Tag, Button, Empty, Typography, Space, Modal, Descriptions, message, Divider, Popconfirm, Select, Badge } from 'antd';
 import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getAnnoncesByUser } from '../services/annonceService';
-import { getDemandesByAnnonce, assignDemande } from '../services/demandeService';
+import { getDemandesByAnnonce } from '../services/demandeService';
+import { getCategories } from '../services/categoryService';
 import { Link } from 'react-router-dom';
-import { PlusOutlined, UserOutlined, PhoneOutlined, MailOutlined, CheckOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
-import type { Annonce } from '../types/api';
+import { PlusOutlined, UserOutlined, PhoneOutlined, MailOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import type { Annonce, Category } from '../types/api';
 
 const { Title, Text } = Typography;
 
 // Utiliser le type Annonce du backend
 type MyAnn = Annonce & {
   donatedQuantity?: number;
+  expirationDate?: string;
+  dateExpiration?: string;
+  validUntil?: string;
+  expiresAt?: string;
 };
 
 type InterestRequest = {
@@ -32,10 +37,15 @@ export default function MyAnnouncements() {
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<MyAnn | null>(null);
   const [interests, setInterests] = useState<InterestRequest[]>([]);
   const [interestsLoading, setInterestsLoading] = useState(false);
-  const [assignModalOpen, setAssignModalOpen] = useState(false);
-  const [selectedInterest, setSelectedInterest] = useState<InterestRequest | null>(null);
-  const [assignQuantity, setAssignQuantity] = useState<number>(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [expirationFilter, setExpirationFilter] = useState<'expiring' | undefined>(undefined);
+  const [demandesCountByAnnonce, setDemandesCountByAnnonce] = useState<Record<number, number>>({});
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [demandesForSelected, setDemandesForSelected] = useState<any[]>([]);
+  const [quantitesDonneesByAnnonce, setQuantitesDonneesByAnnonce] = useState<Record<number, number>>({});
+
+  const EXPIRING_SOON_DAYS = 7;
+  const PENDING_ALERT_DAYS = 7;
 
   // Fonction pour charger les données
   const loadData = async () => {
@@ -60,6 +70,9 @@ export default function MyAnnouncements() {
       console.log('[MyAnnouncements] Annonces après vérification:', annoncesArray.length, annoncesArray);
       setData(annoncesArray);
       
+      // Charger le nombre de demandes pour chaque annonce
+      await loadDemandesCountsForAll(annoncesArray);
+      
       if (annoncesArray.length === 0) {
         console.log('[MyAnnouncements] Aucune annonce trouvée pour userId:', userId);
       }
@@ -72,6 +85,72 @@ export default function MyAnnouncements() {
     }
   };
 
+  // Charger le nombre de demandes et les quantités données pour toutes les annonces
+  const loadDemandesCountsForAll = async (annonces: MyAnn[]) => {
+    if (!annonces || annonces.length === 0) {
+      return;
+    }
+    
+    try {
+      console.log('[MyAnnouncements] Chargement du nombre de demandes et quantités données pour', annonces.length, 'annonces...');
+      const counts: Record<number, number> = {};
+      const quantitesDonnees: Record<number, number> = {};
+      
+      // Charger en parallèle toutes les demandes
+      const promises = annonces.map(async (annonce) => {
+        try {
+          const annonceId = typeof annonce.id === 'number' ? annonce.id : parseInt(annonce.id) || 0;
+          if (annonceId === 0) return;
+          
+          const demandes = await getDemandesByAnnonce(annonceId);
+          const demandesArray = Array.isArray(demandes) ? demandes : [];
+          counts[annonceId] = demandesArray.length;
+          
+          // Calculer la quantité donnée (somme des quantités attribuées aux demandes approuvées)
+          const demandesApprouvees = demandesArray.filter((d: any) => {
+            const statusStr = String(d.status || '').trim();
+            const statusUpper = statusStr.toUpperCase();
+            return statusUpper === 'APPROVED' || 
+                   statusUpper === 'APPROUVÉ' || 
+                   statusUpper === 'APPROUVE' ||
+                   statusStr === 'Approuvé' ||
+                   statusStr === 'approuvé' ||
+                   statusStr === 'APPROVED' ||
+                   statusStr === 'Approved';
+          });
+          
+          const quantiteDonnee = demandesApprouvees.reduce((sum: number, d: any) => {
+            let qty = d.quantiteAssignee !== undefined ? d.quantiteAssignee : 
+                      d.quantite_assignee !== undefined ? d.quantite_assignee :
+                      null;
+            if (qty === null || qty === undefined || qty === 0) {
+              qty = 1; // Par défaut, chaque demande approuvée = 1 quantité
+            }
+            return sum + (typeof qty === 'number' ? qty : (parseInt(String(qty)) || 1));
+          }, 0);
+          
+          quantitesDonnees[annonceId] = quantiteDonnee;
+          console.log(`[MyAnnouncements] Annonce ${annonceId}: ${demandesArray.length} demandes, ${quantiteDonnee} quantités données`);
+        } catch (error) {
+          console.error(`[MyAnnouncements] Erreur chargement demandes pour annonce ${annonce.id}:`, error);
+          const annonceId = typeof annonce.id === 'number' ? annonce.id : parseInt(annonce.id) || 0;
+          if (annonceId > 0) {
+            counts[annonceId] = 0;
+            quantitesDonnees[annonceId] = 0;
+          }
+        }
+      });
+      
+      await Promise.all(promises);
+      console.log('[MyAnnouncements] Nombre de demandes chargées:', counts);
+      console.log('[MyAnnouncements] Quantités données chargées:', quantitesDonnees);
+      setDemandesCountByAnnonce(counts);
+      setQuantitesDonneesByAnnonce(quantitesDonnees);
+    } catch (error) {
+      console.error('[MyAnnouncements] Erreur lors du chargement des nombres de demandes:', error);
+    }
+  };
+
   // Charger les annonces de l'utilisateur connecté
   useEffect(() => {
     if (isAuthenticated && user?.id) {
@@ -79,9 +158,25 @@ export default function MyAnnouncements() {
     }
   }, [isAuthenticated, user?.id]);
 
+  const loadCategories = async () => {
+    try {
+      console.log('[MyAnnouncements] Chargement des catégories...');
+      const cats = await getCategories();
+      console.log('[MyAnnouncements] Catégories chargées:', cats);
+      setCategories(Array.isArray(cats) ? cats : []);
+    } catch (error: any) {
+      console.error('[MyAnnouncements] Erreur chargement catégories:', error);
+      setCategories([]);
+    }
+  };
+
   // Recharger quand on arrive sur la page (pour capturer les nouvelles annonces)
   // Cela capture aussi les redirections depuis CreateAnnouncement
   useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      loadCategories();
+    }
+    
     const handleFocus = () => {
       // Recharger quand la fenêtre reprend le focus
       if (isAuthenticated && user?.id) {
@@ -106,13 +201,61 @@ export default function MyAnnouncements() {
     };
   }, [isAuthenticated, user?.id]);
 
-  // Filtrer les annonces par statut
-  const filteredData = useMemo(() => {
-    if (!statusFilter) {
-      return data;
+  // Fonctions utilitaires pour les dates
+  const parseDate = (value?: string) => {
+    if (!value) {
+      return null;
     }
-    return data.filter(ann => ann.status === statusFilter);
-  }, [data, statusFilter]);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const getExpirationDate = (announcement: MyAnn) => {
+    return parseDate(
+      announcement.expirationDate
+      ?? announcement.dateExpiration
+      ?? announcement.validUntil
+      ?? announcement.expiresAt
+    );
+  };
+
+  const isExpiringSoon = (announcement: MyAnn) => {
+    const expirationDate = getExpirationDate(announcement);
+    if (!expirationDate) {
+      return false;
+    }
+    const now = new Date();
+    const diffDays = (expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays >= 0 && diffDays <= EXPIRING_SOON_DAYS;
+  };
+
+  const getPendingAgeDays = (announcement: MyAnn) => {
+    const status = announcement.status || 'déclarée';
+    if (status !== 'déclarée' && status !== 'modifiée') {
+      return null;
+    }
+    const createdAt = parseDate(announcement.date);
+    if (!createdAt) {
+      return null;
+    }
+    return Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const hasExpiration = useMemo(() => {
+    return data.some((announcement) => getExpirationDate(announcement));
+  }, [data]);
+
+  // Filtrer les annonces par statut + expiration
+  const filteredData = useMemo(() => {
+    let filtered = data;
+    if (statusFilter) {
+      filtered = filtered.filter(ann => ann.status === statusFilter);
+    }
+    if (expirationFilter === 'expiring' && hasExpiration) {
+      filtered = filtered.filter(isExpiringSoon);
+    }
+    return filtered;
+  }, [data, statusFilter, expirationFilter, hasExpiration]);
 
   // Statistiques des statuts
   const statusStats = useMemo(() => {
@@ -125,6 +268,53 @@ export default function MyAnnouncements() {
     };
     return stats;
   }, [data]);
+
+  // Calculer la quantité donnée avec useMemo pour qu'elle se mette à jour automatiquement
+  const quantiteDonneeCalculee = useMemo(() => {
+    if (!selectedAnnouncement || demandesForSelected.length === 0) {
+      return 0;
+    }
+
+    console.log('[MyAnnouncements] ⚠️ Calcul quantité donnée pour annonce', selectedAnnouncement.id);
+    console.log('[MyAnnouncements] ⚠️ Nombre de demandes:', demandesForSelected.length);
+    
+    // Calculer la quantité attribuée (somme des quantités attribuées aux demandes approuvées)
+    const demandesApprouvees = demandesForSelected.filter((d: any) => {
+      const statusStr = String(d.status || '').trim();
+      const statusUpper = statusStr.toUpperCase();
+      const isApproved = statusUpper === 'APPROVED' || 
+                        statusUpper === 'APPROUVÉ' || 
+                        statusUpper === 'APPROUVE' ||
+                        statusStr === 'Approuvé' ||
+                        statusStr === 'approuvé' ||
+                        statusStr === 'APPROVED' ||
+                        statusStr === 'Approved';
+      console.log(`[MyAnnouncements] ⚠️ Demande ${d.id}: status="${d.status}" -> isApproved=${isApproved}`);
+      return isApproved;
+    });
+    
+    console.log('[MyAnnouncements] ⚠️ Nombre de demandes approuvées:', demandesApprouvees.length);
+    
+    const quantiteDonnee = demandesApprouvees.reduce((sum: number, d: any) => {
+      let qty = d.quantiteAssignee !== undefined ? d.quantiteAssignee : 
+                d.quantite_assignee !== undefined ? d.quantite_assignee :
+                null;
+      
+      console.log(`[MyAnnouncements] ⚠️ Demande ${d.id}: quantiteAssignee=${d.quantiteAssignee}, quantite_assignee=${d.quantite_assignee}, qty=${qty}`);
+      
+      if (qty === null || qty === undefined || qty === 0) {
+        qty = 1; // Par défaut, chaque demande approuvée = 1 quantité
+      }
+      
+      const qtyNum = typeof qty === 'number' ? qty : (parseInt(String(qty)) || 1);
+      console.log(`[MyAnnouncements] ⚠️ Demande ${d.id}: qtyNum=${qtyNum}, sum avant=${sum}, sum après=${sum + qtyNum}`);
+      return sum + qtyNum;
+    }, 0);
+    
+    console.log('[MyAnnouncements] ⚠️ Quantité donnée calculée:', quantiteDonnee);
+    
+    return quantiteDonnee;
+  }, [selectedAnnouncement, demandesForSelected]);
 
   const loadInterests = async (announcementId: number) => {
     setInterestsLoading(true);
@@ -149,6 +339,17 @@ export default function MyAnnouncements() {
       }));
       
       setInterests(mappedInterests);
+      
+      // Mettre à jour les demandes pour le calcul de quantité donnée
+      // Toujours mettre à jour car on vient de charger les demandes pour cette annonce
+      console.log('[MyAnnouncements] ⚠️ Mise à jour demandesForSelected pour annonce', announcementId);
+      setDemandesForSelected(demandesArray);
+      
+      // Mettre à jour le compteur pour cette annonce
+      setDemandesCountByAnnonce(prev => ({
+        ...prev,
+        [announcementId]: demandesArray.length
+      }));
     } catch (e: any) {
       console.error('[MyAnnouncements] Erreur chargement demandes:', e);
       message.error('Erreur lors du chargement des demandes');
@@ -159,113 +360,20 @@ export default function MyAnnouncements() {
   };
 
   const handleViewInterests = (announcement: MyAnn) => {
+    console.log('[MyAnnouncements] ⚠️ handleViewInterests appelé pour annonce', announcement.id);
     setSelectedAnnouncement(announcement);
+    setDemandesForSelected([]); // Réinitialiser avant de charger
     const announcementId = typeof announcement.id === 'number' ? announcement.id : parseInt(announcement.id) || 0;
     if (announcementId > 0) {
       loadInterests(announcementId);
     }
   };
 
-  const handleAssign = async () => {
-    if (!selectedAnnouncement || !selectedInterest || !user?.id) {
-      message.error('Données manquantes pour l\'assignation');
-      return;
-    }
-    
-    const available = (selectedAnnouncement.quatite || 0) - (selectedAnnouncement.donatedQuantity || 0);
-    if (assignQuantity > available) {
-      message.error(`Quantité demandée (${assignQuantity}) supérieure à la quantité disponible (${available})`);
-      return;
-    }
+  // NOTE: L'attribution des dons est maintenant gérée uniquement par l'administrateur
+  // Le donateur peut seulement voir les demandes, pas les attribuer
 
-    if (assignQuantity <= 0) {
-      message.error('La quantité doit être supérieure à 0');
-      return;
-    }
-
-    try {
-      const demandeId = parseInt(selectedInterest.id) || 0;
-      const donnateurId = parseInt(user.id) || 0;
-      
-      if (demandeId === 0) {
-        message.error('ID de demande invalide');
-        return;
-      }
-      
-      if (donnateurId === 0) {
-        message.error('Erreur: utilisateur non identifié');
-        return;
-      }
-
-      // Vérifier que l'utilisateur est bien le donateur de cette annonce
-      const annonceDonnateurId = selectedAnnouncement.donnateur?.id || (selectedAnnouncement.donnateur as any)?.id;
-      if (!annonceDonnateurId || annonceDonnateurId !== donnateurId) {
-        message.error('Vous n\'êtes pas le donateur de cette annonce');
-        return;
-      }
-
-      console.log('[MyAnnouncements] Assignation quantité:', {
-        demandeId,
-        quantite: assignQuantity,
-        donnateurId,
-        annonceId: selectedAnnouncement.id
-      });
-
-      // Utiliser assignDemande du service (déjà importé)
-      await assignDemande(demandeId, assignQuantity, donnateurId);
-      
-      message.success(`Quantité de ${assignQuantity} assignée avec succès à ${selectedInterest.userName}`);
-      setAssignModalOpen(false);
-      setSelectedInterest(null);
-      
-      // Recharger les données
-      const announcementId = typeof selectedAnnouncement.id === 'number' ? selectedAnnouncement.id : parseInt(selectedAnnouncement.id) || 0;
-      if (user?.id) {
-        const userId = parseInt(user.id) || 0;
-        if (userId > 0) {
-          try {
-            const annonces = await getAnnoncesByUser(userId);
-            const annoncesArray = Array.isArray(annonces) ? annonces : [];
-            setData(annoncesArray);
-            // Recharger les demandes pour voir le statut mis à jour
-            if (announcementId > 0) {
-              loadInterests(announcementId);
-            }
-          } catch (e) {
-            console.error('[MyAnnouncements] Erreur rechargement:', e);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.error('[MyAnnouncements] Erreur assignation:', e);
-      const errorMessage = e?.message || e?.response?.data?.message || 'Erreur lors de l\'assignation';
-      message.error(errorMessage);
-    }
-  };
-
-  const handleDeleteInterest = async (interestId: string) => {
-    try {
-      const demandeId = parseInt(interestId) || 0;
-      if (demandeId === 0) {
-        message.error('ID de demande invalide');
-        return;
-      }
-      
-      const { deleteDemande } = await import('../services/demandeService');
-      await deleteDemande(demandeId);
-      message.success('Demande supprimée');
-      
-      if (selectedAnnouncement) {
-        const announcementId = typeof selectedAnnouncement.id === 'number' ? selectedAnnouncement.id : parseInt(selectedAnnouncement.id) || 0;
-        if (announcementId > 0) {
-          loadInterests(announcementId);
-        }
-      }
-    } catch (e: any) {
-      console.error('[MyAnnouncements] Erreur suppression:', e);
-      message.error(e?.message || 'Erreur lors de la suppression');
-    }
-  };
+  // NOTE: La suppression des demandes est également gérée par l'administrateur
+  // Le donateur ne peut pas supprimer les demandes
 
   const handleDeleteAnnouncement = async (announcement: MyAnn) => {
     try {
@@ -355,6 +463,22 @@ export default function MyAnnouncements() {
                 { label: `Annulées par vous (${statusStats['annulée']})`, value: 'annulée' }
               ]}
             />
+            {hasExpiration && (
+              <>
+                <Text type="secondary">Expiration:</Text>
+                <Select
+                  style={{ width: 220 }}
+                  placeholder="Toutes"
+                  allowClear
+                  value={expirationFilter}
+                  onChange={setExpirationFilter}
+                  options={[
+                    { label: 'Toutes', value: undefined },
+                    { label: 'Proche d\'expiration', value: 'expiring' }
+                  ]}
+                />
+              </>
+            )}
           </Space>
         }
       >
@@ -413,12 +537,52 @@ export default function MyAnnouncements() {
               { 
                 title: 'Titre', 
                 dataIndex: 'titre',
-                render: (text) => text || 'Sans titre'
+                render: (text, record: MyAnn) => {
+                  const annonceId = typeof record.id === 'number' ? record.id : parseInt(record.id) || 0;
+                  const quantiteTotale = record.quatite || 0;
+                  const quantiteDonnee = quantitesDonneesByAnnonce[annonceId] || 0;
+                  const quantiteDisponible = quantiteTotale - quantiteDonnee;
+                  const isEpuise = quantiteDisponible <= 0 && quantiteTotale > 0;
+                  
+                  return (
+                    <Space>
+                      <span>{text || 'Sans titre'}</span>
+                      {isEpuise && (
+                        <Badge count="Épuisé" style={{ backgroundColor: '#ff4d4f' }} />
+                      )}
+                    </Space>
+                  );
+                }
               },
               { 
                 title: 'Catégorie', 
-                dataIndex: ['categorie', 'nom'],
-                render: (nom: string) => nom ? <Tag color="green">{nom}</Tag> : '-'
+                render: (_, record: MyAnn) => {
+                  // Essayer plusieurs façons de trouver le nom de la catégorie
+                  let catName = (record.categorie as any)?.nom || 
+                               (record.categorie as any)?.name ||
+                               record.categorie?.nom ||
+                               (record.categorie as any)?.libelle ||
+                               (record.categorie as any)?.label;
+                  
+                  // Si toujours pas trouvé, chercher par ID dans la liste des catégories chargées
+                  if (!catName && categories.length > 0) {
+                    const catId = (record.categorie as any)?.id || 
+                                 (record as any)?.categorie_id ||
+                                 (record as any)?.categorieId;
+                    if (catId) {
+                      const catFromList = categories.find(c => 
+                        c.id === catId || 
+                        String(c.id) === String(catId) ||
+                        Number(c.id) === Number(catId)
+                      );
+                      if (catFromList) {
+                        catName = catFromList.nom || (catFromList as any)?.name || 'Non spécifiée';
+                      }
+                    }
+                  }
+                  
+                  return catName ? <Tag color="green">{catName}</Tag> : <Tag color="default">Non spécifiée</Tag>;
+                }
               },
               { 
                 title: 'Quantité', 
@@ -440,39 +604,29 @@ export default function MyAnnouncements() {
                 }) : '-'
               },
               { 
-                title: 'Quantité disponible', 
-                render: (_, record: MyAnn) => {
-                  const available = (record.quatite || 0) - (record.donatedQuantity || 0);
-                  return (
-                    <div>
-                      <Text strong>{available}</Text>
-                      {record.donatedQuantity && record.donatedQuantity > 0 && (
-                        <Text type="secondary" style={{ marginLeft: 8 }}>
-                          ({record.donatedQuantity} donné{record.donatedQuantity > 1 ? 's' : ''})
-                        </Text>
-                      )}
-                    </div>
-                  );
-                }
-              },
-              { 
                 title: 'Statut', 
                 dataIndex: 'status',
                 width: 200,
-                render: (v: string) => {
+                render: (v: string, record: MyAnn) => {
                   const status = v || 'déclarée';
                   const icon = status === 'approuvée' ? <CheckCircleOutlined /> 
                     : status === 'rejetée' ? <CloseCircleOutlined />
                     : <ClockCircleOutlined />;
+                  const pendingDays = getPendingAgeDays({ ...record, status });
                   
                   return (
-                    <Tag 
-                      color={getStatusColor(status)} 
-                      icon={icon}
-                      style={{ fontSize: 13, padding: '4px 8px' }}
-                    >
-                      {getStatusLabel(status)}
-                    </Tag>
+                    <Space direction="vertical" size={4}>
+                      <Tag 
+                        color={getStatusColor(status)} 
+                        icon={icon}
+                        style={{ fontSize: 13, padding: '4px 8px' }}
+                      >
+                        {getStatusLabel(status)}
+                      </Tag>
+                      {pendingDays !== null && pendingDays >= PENDING_ALERT_DAYS && (
+                        <Badge status="error" text={`En attente depuis ${pendingDays} j`} />
+                      )}
+                    </Space>
                   );
                 },
                 filters: [
@@ -489,10 +643,14 @@ export default function MyAnnouncements() {
                   <Space>
                     <Button 
                       size="small" 
-                      type="primary"
+                      type="default"
                       onClick={() => handleViewInterests(record)}
                     >
-                      Voir demandeurs
+                      Voir demandeurs ({(() => {
+                        const annonceId = typeof record.id === 'number' ? record.id : parseInt(record.id) || 0;
+                        const count = demandesCountByAnnonce[annonceId] ?? 0;
+                        return count;
+                      })()})
                     </Button>
                     <Popconfirm
                       title="Supprimer cette annonce ?"
@@ -528,11 +686,39 @@ export default function MyAnnouncements() {
             <Descriptions column={2} bordered size="small" style={{ marginBottom: 16 }}>
               <Descriptions.Item label="Quantité totale">{selectedAnnouncement.quatite || 0}</Descriptions.Item>
               <Descriptions.Item label="Quantité disponible">
-                {(selectedAnnouncement.quatite || 0) - (selectedAnnouncement.donatedQuantity || 0)}
+                {(selectedAnnouncement.quatite || 0) - quantiteDonneeCalculee}
               </Descriptions.Item>
-              <Descriptions.Item label="Quantité donnée">{selectedAnnouncement.donatedQuantity || 0}</Descriptions.Item>
+              <Descriptions.Item label="Quantité donnée">{quantiteDonneeCalculee}</Descriptions.Item>
               <Descriptions.Item label="Catégorie">
-                <Tag color="green">{selectedAnnouncement.categorie?.nom || 'Non spécifiée'}</Tag>
+                <Tag color="green">
+                  {(() => {
+                    // Essayer plusieurs façons de trouver le nom de la catégorie
+                    let catName = (selectedAnnouncement.categorie as any)?.nom || 
+                                 (selectedAnnouncement.categorie as any)?.name ||
+                                 selectedAnnouncement.categorie?.nom ||
+                                 (selectedAnnouncement.categorie as any)?.libelle ||
+                                 (selectedAnnouncement.categorie as any)?.label;
+                    
+                    // Si toujours pas trouvé, chercher par ID dans la liste des catégories chargées
+                    if (!catName && categories.length > 0) {
+                      const catId = (selectedAnnouncement.categorie as any)?.id || 
+                                   (selectedAnnouncement as any)?.categorie_id ||
+                                   (selectedAnnouncement as any)?.categorieId;
+                      if (catId) {
+                        const catFromList = categories.find(c => 
+                          c.id === catId || 
+                          String(c.id) === String(catId) ||
+                          Number(c.id) === Number(catId)
+                        );
+                        if (catFromList) {
+                          catName = catFromList.nom || (catFromList as any)?.name || 'Non spécifiée';
+                        }
+                      }
+                    }
+                    
+                    return catName || 'Non spécifiée';
+                  })()}
+                </Tag>
               </Descriptions.Item>
             </Descriptions>
 
@@ -581,30 +767,14 @@ export default function MyAnnouncements() {
                 {
                   title: 'Actions',
                   render: (_, interest: InterestRequest) => {
-                    const available = (selectedAnnouncement.quatite || 0) - (selectedAnnouncement.donatedQuantity || 0);
+                    // Le donateur peut seulement voir, pas attribuer
+                    // L'attribution est gérée par l'administrateur
                     return (
-                      <Space>
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<CheckOutlined />}
-                          onClick={() => {
-                            setSelectedInterest(interest);
-                            setAssignQuantity(interest.requestedQuantity || available);
-                            setAssignModalOpen(true);
-                          }}
-                          disabled={available <= 0 || interest.status === 'APPROVED'}
-                        >
-                          Assigner
-                        </Button>
-                        <Button
-                          size="small"
-                          danger
-                          onClick={() => handleDeleteInterest(interest.id)}
-                        >
-                          Supprimer
-                        </Button>
-                      </Space>
+                      <Tag color={interest.status === 'APPROVED' ? 'green' : interest.status === 'REJECTED' ? 'red' : 'orange'}>
+                        {interest.status === 'APPROVED' ? '✓ Attribué par admin' : 
+                         interest.status === 'REJECTED' ? '✗ Refusé par admin' : 
+                         '⏳ En attente de décision admin'}
+                      </Tag>
                     );
                   }
                 }
@@ -614,37 +784,21 @@ export default function MyAnnouncements() {
         )}
       </Modal>
 
-      {/* Modal pour assigner une quantité */}
-      <Modal
-        title="Assigner une quantité"
-        open={assignModalOpen}
-        onOk={handleAssign}
-        onCancel={() => {
-          setAssignModalOpen(false);
-          setSelectedInterest(null);
-        }}
-      >
-        {selectedInterest && selectedAnnouncement && (
-          <div>
-            <p><strong>Demandeur:</strong> {selectedInterest.userName}</p>
-            <p><strong>Email:</strong> {selectedInterest.userEmail}</p>
-            {selectedInterest.userPhone && <p><strong>Téléphone:</strong> {selectedInterest.userPhone}</p>}
-            <Divider />
-            <p><strong>Quantité disponible:</strong> {(selectedAnnouncement.quatite || 0) - (selectedAnnouncement.donatedQuantity || 0)}</p>
-            <p><strong>Quantité à assigner:</strong></p>
-            <InputNumber
-              min={1}
-              max={(selectedAnnouncement.quatite || 0) - (selectedAnnouncement.donatedQuantity || 0)}
-              value={assignQuantity}
-              onChange={(val) => setAssignQuantity(val || 1)}
-              style={{ width: '100%' }}
-            />
-            <p style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-              Après assignation, la quantité sera décomptée de votre annonce.
-            </p>
-          </div>
-        )}
-      </Modal>
+      {/* Info: L'attribution est gérée par l'administrateur */}
+      {selectedAnnouncement && (
+        <div style={{ 
+          marginTop: 16, 
+          padding: 12, 
+          background: '#fff7e6', 
+          border: '1px solid #ffd591',
+          borderRadius: 4 
+        }}>
+          <Text type="warning">
+            <strong>ℹ️ Information :</strong> L'attribution des dons est gérée par l'administrateur.
+            Vous pouvez voir les demandes ici, mais seul l'admin peut attribuer les dons.
+          </Text>
+        </div>
+      )}
     </div>
   );
 }

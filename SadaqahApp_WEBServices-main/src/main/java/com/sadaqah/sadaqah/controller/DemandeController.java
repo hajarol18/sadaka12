@@ -58,6 +58,12 @@ public class DemandeController {
 				response.put("message", "Échec de la création de la demande");
 				return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
 			}
+		} catch (IllegalStateException e) {
+			// Cooldown activé
+			Map<String, Object> response = new HashMap<>();
+			response.put("success", false);
+			response.put("message", e.getMessage());
+			return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
 		} catch (IllegalArgumentException e) {
 			// L'utilisateur essaie de demander sa propre annonce
 			System.err.println("[DemandeController] Erreur: " + e.getMessage());
